@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -174,6 +175,22 @@ func (c Client) RemoteBranchExists(ctx context.Context, dir, remote, branch stri
 		return false, err
 	}
 	return strings.TrimSpace(result.Stdout) != "", nil
+}
+
+func (c Client) RemoteTrackingBranchExists(ctx context.Context, dir, remote, branch string) (bool, error) {
+	if branch == "" {
+		return false, nil
+	}
+	ref := "refs/remotes/" + remote + "/" + branch
+	_, err := c.run(ctx, dir, "show-ref", "--verify", "--quiet", ref)
+	if err == nil {
+		return true, nil
+	}
+	var cmdErr *execx.CommandError
+	if errors.As(err, &cmdErr) && cmdErr.Result.ExitCode == 1 {
+		return false, nil
+	}
+	return false, err
 }
 
 func ParseWorktreeList(output string) []Worktree {

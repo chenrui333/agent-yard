@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"text/template"
 
 	"github.com/chenrui333/agent-yard/internal/config"
@@ -184,12 +183,5 @@ func reviewURL(cfg config.Config, prNumber int) string {
 	if cfg.GitHub.Owner == "" || cfg.GitHub.Repo == "" || prNumber == 0 {
 		return ""
 	}
-	host := cfg.GitHub.Host
-	if host == "" {
-		host = "github.com"
-	}
-	host = strings.TrimPrefix(host, "https://")
-	host = strings.TrimPrefix(host, "http://")
-	host = strings.TrimSuffix(host, "/")
-	return fmt.Sprintf("https://%s/%s/%s/pull/%d", host, cfg.GitHub.Owner, cfg.GitHub.Repo, prNumber)
+	return fmt.Sprintf("https://%s/%s/%s/pull/%d", config.GitHubHost(cfg), cfg.GitHub.Owner, cfg.GitHub.Repo, prNumber)
 }

@@ -72,7 +72,7 @@ func TestRenderPRReviewIncludesReviewLoop(t *testing.T) {
 
 func TestRenderPRReviewUsesConfiguredGitHubHost(t *testing.T) {
 	cfg := config.Default()
-	cfg.GitHub.Host = "ghe.example.com"
+	cfg.GitHub.Host = "https://ghe.example.com/"
 	cfg.GitHub.Owner = "owner"
 	cfg.GitHub.Repo = "repo"
 	rendered, err := (Renderer{}).Render(KindPRReview, Data{

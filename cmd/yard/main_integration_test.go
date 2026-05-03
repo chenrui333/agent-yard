@@ -169,7 +169,7 @@ base_branch: main
 default_remote: origin
 session: yard-test
 github:
-  host: ghe.example.com
+  host: https://ghe.example.com/
   owner: chenrui333
   repo: agent-yard
 worktrees:
@@ -190,6 +190,42 @@ agents:
 	}
 	assertContains(t, out, "gh auth")
 	assertContains(t, out, "authenticated GitHub CLI for ghe.example.com")
+}
+
+func TestBoardSkipsRemoteBranchProbe(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+	marker := filepath.Join(dir, "show-ref-called")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	gitScript := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"show-ref\" ]; then\n  echo called > %q\n  exit 0\nfi\nif [ \"$1\" = \"rev-list\" ]; then\n  echo '0 0'\n  exit 0\nfi\nif [ \"$1\" = \"merge-base\" ]; then\n  echo abc\n  exit 0\nfi\nexit 0\n", marker)
+	writeExecutable(t, filepath.Join(binDir, "git"), gitScript)
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nexit 0\n")
+	writeFile(t, configPath, "repo: \".\"\nbase_branch: main\ndefault_remote: origin\nsession: yard-test\nagents:\n  implementation:\n    command: codex\n  local_review:\n    command: codex\n  pr_review:\n    command: codex\n")
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf("tasks:\n  - id: remote-check\n    issue: 338\n    checkbox: Remote check\n    service_family: s3\n    branch: remote-check\n    worktree: %q\n    status: worktree_created\n    pr_url: \"\"\n    pr_number: 0\n", worktree))
+
+	boardOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "board")
+	if err != nil {
+		t.Fatalf("board should not require remote branch probe: %v\noutput:\n%s", err, boardOut)
+	}
+	assertContains(t, boardOut, "remote-check")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("board should not probe remote branch refs, stat error: %v", err)
+	}
+
+	statusOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "status")
+	if err != nil {
+		t.Fatalf("status should use local remote-tracking ref: %v\noutput:\n%s", err, statusOut)
+	}
+	assertContains(t, statusOut, "pushed")
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("status should probe local remote-tracking ref, stat error: %v", err)
+	}
 }
 
 func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {

@@ -54,6 +54,34 @@ func TestRemoteBranchExistsUsesExactRef(t *testing.T) {
 	}
 }
 
+func TestRemoteTrackingBranchExistsUsesLocalRef(t *testing.T) {
+	runner := &recordingRunner{}
+	client := Client{Runner: runner}
+	exists, err := client.RemoteTrackingBranchExists(context.Background(), "/repo", "origin", "feature")
+	if err != nil {
+		t.Fatalf("RemoteTrackingBranchExists returned error: %v", err)
+	}
+	if !exists {
+		t.Fatal("RemoteTrackingBranchExists = false; want true")
+	}
+	wantArgs := []string{"show-ref", "--verify", "--quiet", "refs/remotes/origin/feature"}
+	if !reflect.DeepEqual(runner.command.Args, wantArgs) {
+		t.Fatalf("args = %#v; want %#v", runner.command.Args, wantArgs)
+	}
+}
+
+func TestRemoteTrackingBranchExistsTreatsMissingRefAsFalse(t *testing.T) {
+	runner := &recordingRunner{err: &execx.CommandError{Result: execx.Result{ExitCode: 1}}}
+	client := Client{Runner: runner}
+	exists, err := client.RemoteTrackingBranchExists(context.Background(), "/repo", "origin", "missing")
+	if err != nil {
+		t.Fatalf("RemoteTrackingBranchExists returned error: %v", err)
+	}
+	if exists {
+		t.Fatal("RemoteTrackingBranchExists = true; want false")
+	}
+}
+
 type recordingRunner struct {
 	command execx.Command
 	result  execx.Result
