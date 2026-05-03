@@ -69,3 +69,23 @@ func TestRenderPRReviewIncludesReviewLoop(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPRReviewUsesConfiguredGitHubHost(t *testing.T) {
+	cfg := config.Default()
+	cfg.GitHub.Host = "ghe.example.com"
+	cfg.GitHub.Owner = "owner"
+	cfg.GitHub.Repo = "repo"
+	rendered, err := (Renderer{}).Render(KindPRReview, Data{
+		Config:   cfg,
+		PRNumber: 123,
+	})
+	if err != nil {
+		t.Fatalf("Render returned error: %v", err)
+	}
+	if !strings.Contains(rendered, "/review https://ghe.example.com/owner/repo/pull/123") {
+		t.Fatalf("rendered prompt missing enterprise review URL:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "https://github.com/owner/repo/pull/123") {
+		t.Fatalf("rendered prompt used github.com instead of configured host:\n%s", rendered)
+	}
+}

@@ -1,12 +1,12 @@
 # PR Review: #{{.PRNumber}}
 
 Review pull request #{{.PRNumber}}.
-{{- if and .Config.GitHub.Owner .Config.GitHub.Repo }}
+{{- if .PRURL }}
 
 Codex review command for this review terminal:
 
 ```text
-/review https://github.com/{{.Config.GitHub.Owner}}/{{.Config.GitHub.Repo}}/pull/{{.PRNumber}}
+/review {{.PRURL}}
 ```
 {{- end }}
 

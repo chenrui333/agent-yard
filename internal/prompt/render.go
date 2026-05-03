@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/chenrui333/agent-yard/internal/config"
@@ -48,6 +49,9 @@ func (r Renderer) Render(kind string, data Data) (string, error) {
 	}
 	if data.Issue == 0 {
 		data.Issue = data.Task.Issue
+	}
+	if data.PRURL == "" {
+		data.PRURL = reviewURL(data.Config, data.PRNumber)
 	}
 	var out bytes.Buffer
 	if err := tmpl.Execute(&out, data); err != nil {
@@ -151,11 +155,11 @@ Report findings first, ordered by severity, with file and line references where 
 	KindPRReview: `# PR Review: #{{.PRNumber}}
 
 Review pull request #{{.PRNumber}}.
-{{- if and .Config.GitHub.Owner .Config.GitHub.Repo }}
+{{- if .PRURL }}
 
 Codex review command for this review terminal:
 
-` + "```text\n/review https://github.com/{{.Config.GitHub.Owner}}/{{.Config.GitHub.Repo}}/pull/{{.PRNumber}}\n```\n" + `{{- end }}
+` + "```text\n/review {{.PRURL}}\n```\n" + `{{- end }}
 
 Do not push code. Do not mutate branches. Do not rewrite commits.
 
@@ -174,4 +178,18 @@ func DefaultTemplate(kind string) (string, bool) {
 
 func Kinds() []string {
 	return []string{KindImplement, KindLocalReview, KindPRReview}
+}
+
+func reviewURL(cfg config.Config, prNumber int) string {
+	if cfg.GitHub.Owner == "" || cfg.GitHub.Repo == "" || prNumber == 0 {
+		return ""
+	}
+	host := cfg.GitHub.Host
+	if host == "" {
+		host = "github.com"
+	}
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimSuffix(host, "/")
+	return fmt.Sprintf("https://%s/%s/%s/pull/%d", host, cfg.GitHub.Owner, cfg.GitHub.Repo, prNumber)
 }
