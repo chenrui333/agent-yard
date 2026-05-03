@@ -1103,6 +1103,73 @@ agents:
 	assertContains(t, tasksData, "pr_number: 123")
 }
 
+func TestPRRejectsExistingPRWithWrongBase(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"release\"}]"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: needs_review
+    pr_url: ""
+    pr_number: 0
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "pr", "feature", "--no-push")
+	if err == nil {
+		t.Fatalf("expected pr feature to reject wrong-base PR\noutput:\n%s", out)
+	}
+	assertContains(t, out, "targets base \"release\", want \"main\"")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: needs_review")
+	assertContains(t, tasksData, "pr_number: 0")
+}
+
 func TestReadyWritesMergeReadyWhenChecksPass(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
@@ -1248,6 +1315,72 @@ agents:
 	assertContains(t, out, "local HEAD is not contained in origin/feature-task")
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: pr_opened")
+}
+
+func TestReadyFailsCommittedWhitespaceDiff(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "bad.txt"), "bad trailing \n")
+	runGit(t, repo, "add", "bad.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+	runGit(t, repo, "push", "-u", "origin", "feature-task")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"mergeStateStatus\":\"CLEAN\",\"reviewDecision\":\"APPROVED\",\"statusCheckRollup\":[{\"name\":\"test\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: pr_opened
+    pr_url: "https://github.com/o/r/pull/123"
+    pr_number: 123
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature")
+	if err == nil {
+		t.Fatalf("ready should fail for committed whitespace errors\noutput:\n%s", out)
+	}
+	assertContains(t, out, "diff check")
+	assertContains(t, out, "trailing whitespace")
 }
 
 func TestGCPruneMergedRemovesRunStateAndReviewWorktree(t *testing.T) {

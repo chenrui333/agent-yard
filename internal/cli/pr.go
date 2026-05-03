@@ -87,6 +87,9 @@ func (a *App) runPR(cmd *cobra.Command, taskID string, opts *prOptions) error {
 	if pr, ok, err := ghx.New().PRForBranch(cmd.Context(), config.RepoPath(a.configPath, cfg), config.GitHubRepoArg(cfg), item.Branch); err != nil {
 		return err
 	} else if ok {
+		if pr.BaseRefName != "" && pr.BaseRefName != cfg.BaseBranch {
+			return fmt.Errorf("existing PR %s targets base %q, want %q", pr.URL, pr.BaseRefName, cfg.BaseBranch)
+		}
 		a.printf("existing PR: %s\n", pr.URL)
 		return store.Update(taskID, func(current *task.Task) error {
 			current.PRURL = pr.URL
@@ -143,10 +146,10 @@ func (a *App) prPreflight(ctx context.Context, cfg config.Config, item task.Task
 	if dirty {
 		return "", fmt.Errorf("worktree %s is dirty", worktreePath)
 	}
-	if err := git.DiffCheck(ctx, worktreePath); err != nil {
+	baseRef := cfg.DefaultRemote + "/" + cfg.BaseBranch
+	if err := git.DiffCheckSince(ctx, worktreePath, baseRef); err != nil {
 		return "", err
 	}
-	baseRef := cfg.DefaultRemote + "/" + cfg.BaseBranch
 	aheadBehind, err := git.AheadBehind(ctx, worktreePath, baseRef)
 	if err != nil {
 		if strict {

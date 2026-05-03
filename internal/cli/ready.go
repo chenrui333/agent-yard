@@ -74,8 +74,21 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 	git := gitx.New()
 	checks := []readyCheck{}
 	localWorktree := ""
+	repoPath := config.RepoPath(a.configPath, cfg)
+	baseRef := cfg.DefaultRemote + "/" + cfg.BaseBranch
+	fetchedRemote := false
 	add := func(name, status, detail string) {
 		checks = append(checks, readyCheck{Name: name, Status: status, Detail: detail})
+	}
+	fetchRemote := func() error {
+		if fetchedRemote {
+			return nil
+		}
+		if err := git.Fetch(ctx, repoPath, cfg.DefaultRemote); err != nil {
+			return err
+		}
+		fetchedRemote = true
+		return nil
 	}
 
 	worktreePath := a.taskWorktreePath(cfg, item)
@@ -103,7 +116,9 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 		} else {
 			add("worktree clean", "pass", "clean")
 		}
-		if err := git.DiffCheck(ctx, abs); err != nil {
+		if err := fetchRemote(); err != nil {
+			add("diff check", "fail", err.Error())
+		} else if err := git.DiffCheckSince(ctx, abs, baseRef); err != nil {
 			add("diff check", "fail", err.Error())
 		} else {
 			add("diff check", "pass", "ok")
@@ -113,13 +128,13 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 
 	if item.Branch == "" {
 		add("remote branch", "fail", "task has no branch")
-	} else if exists, err := git.RemoteBranchExists(ctx, config.RepoPath(a.configPath, cfg), cfg.DefaultRemote, item.Branch); err != nil {
+	} else if exists, err := git.RemoteBranchExists(ctx, repoPath, cfg.DefaultRemote, item.Branch); err != nil {
 		add("remote branch", "fail", err.Error())
 	} else if !exists {
 		add("remote branch", "fail", "not pushed")
 	} else if localWorktree != "" {
 		remoteRef := cfg.DefaultRemote + "/" + item.Branch
-		if err := git.Fetch(ctx, config.RepoPath(a.configPath, cfg), cfg.DefaultRemote); err != nil {
+		if err := fetchRemote(); err != nil {
 			add("remote branch", "fail", err.Error())
 		} else if contains, err := git.IsAncestor(ctx, localWorktree, "HEAD", remoteRef); err != nil {
 			add("remote branch", "fail", err.Error())
@@ -172,6 +187,10 @@ func (a *App) readyPullRequest(ctx context.Context, cfg config.Config, item task
 			add("pr", "fail", fmt.Sprintf("PR head branch %q, want %q", pr.HeadRefName, item.Branch))
 			return ghx.PullRequest{}, false
 		}
+		if pr.BaseRefName != "" && pr.BaseRefName != cfg.BaseBranch {
+			add("pr", "fail", fmt.Sprintf("PR base branch %q, want %q", pr.BaseRefName, cfg.BaseBranch))
+			return ghx.PullRequest{}, false
+		}
 		add("pr", "pass", pr.URL)
 		return pr, true
 	}
@@ -182,6 +201,10 @@ func (a *App) readyPullRequest(ctx context.Context, cfg config.Config, item task
 	}
 	if !ok {
 		add("pr", "fail", "no open PR for branch "+item.Branch)
+		return ghx.PullRequest{}, false
+	}
+	if pr.BaseRefName != "" && pr.BaseRefName != cfg.BaseBranch {
+		add("pr", "fail", fmt.Sprintf("PR base branch %q, want %q", pr.BaseRefName, cfg.BaseBranch))
 		return ghx.PullRequest{}, false
 	}
 	add("pr", "pass", pr.URL)

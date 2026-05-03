@@ -172,6 +172,15 @@ func (c Client) DiffCheck(ctx context.Context, dir string) error {
 	return err
 }
 
+func (c Client) DiffCheckSince(ctx context.Context, dir, baseRef string) error {
+	base, err := c.MergeBase(ctx, dir, baseRef)
+	if err != nil {
+		return err
+	}
+	_, err = c.run(ctx, dir, "diff", "--check", base+"..HEAD")
+	return err
+}
+
 func (c Client) ResetHard(ctx context.Context, dir string) error {
 	_, err := c.run(ctx, dir, "reset", "--hard")
 	return err

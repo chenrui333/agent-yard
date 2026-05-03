@@ -82,6 +82,32 @@ func TestRemoteTrackingBranchExistsTreatsMissingRefAsFalse(t *testing.T) {
 	}
 }
 
+func TestDiffCheckSinceUsesMergeBaseRange(t *testing.T) {
+	runner := &sequenceRunner{results: []execx.Result{
+		{Stdout: "abc123\n"},
+		{},
+	}}
+	client := Client{Runner: runner}
+	if err := client.DiffCheckSince(context.Background(), "/repo", "origin/main"); err != nil {
+		t.Fatalf("DiffCheckSince returned error: %v", err)
+	}
+	want := [][]string{
+		{"merge-base", "HEAD", "origin/main"},
+		{"diff", "--check", "abc123..HEAD"},
+	}
+	if len(runner.commands) != len(want) {
+		t.Fatalf("recorded %d command(s); want %d", len(runner.commands), len(want))
+	}
+	for i := range want {
+		if runner.commands[i].Dir != "/repo" {
+			t.Fatalf("command %d dir = %q; want /repo", i, runner.commands[i].Dir)
+		}
+		if !reflect.DeepEqual(runner.commands[i].Args, want[i]) {
+			t.Fatalf("command %d args = %#v; want %#v", i, runner.commands[i].Args, want[i])
+		}
+	}
+}
+
 func TestIsAncestorTreatsExitOneAsFalse(t *testing.T) {
 	runner := &recordingRunner{err: &execx.CommandError{Result: execx.Result{ExitCode: 1}}}
 	client := Client{Runner: runner}
@@ -107,4 +133,24 @@ type recordingRunner struct {
 func (r *recordingRunner) Run(_ context.Context, command execx.Command) (execx.Result, error) {
 	r.command = command
 	return r.result, r.err
+}
+
+type sequenceRunner struct {
+	commands []execx.Command
+	results  []execx.Result
+	errs     []error
+}
+
+func (r *sequenceRunner) Run(_ context.Context, command execx.Command) (execx.Result, error) {
+	r.commands = append(r.commands, command)
+	index := len(r.commands) - 1
+	var result execx.Result
+	if index < len(r.results) {
+		result = r.results[index]
+	}
+	var err error
+	if index < len(r.errs) {
+		err = r.errs[index]
+	}
+	return result, err
 }
