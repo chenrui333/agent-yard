@@ -229,6 +229,7 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 		ReservedLanes:               wave.ReservedLanes(ledger),
 	})
 	launched := 0
+	var launchFailures []string
 	for _, selected := range selections {
 		if launched >= limit {
 			break
@@ -237,11 +238,15 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 		item.AssignedAgent = selected.Lane
 		if err := a.launchTask(cmd, cfg, store, item, prompt.KindImplement, agent.TaskWindowName(item), cfg.Agents.Implementation, task.StatusRunning, opts); err != nil {
 			a.printf("skip %s: %v\n", item.ID, err)
+			launchFailures = append(launchFailures, item.ID)
 			continue
 		}
 		launched++
 	}
 	a.printf("selected %d task(s)\n", launched)
+	if launched == 0 && len(launchFailures) > 0 {
+		return fmt.Errorf("failed to launch %d selected task(s): %s", len(launchFailures), strings.Join(launchFailures, ", "))
+	}
 	return nil
 }
 

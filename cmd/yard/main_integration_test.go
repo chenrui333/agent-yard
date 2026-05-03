@@ -626,6 +626,30 @@ agents:
 	assertContains(t, tasksData, "status: running")
 }
 
+func TestWaveLaunchFailsWhenNoSelectedTasksStart(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"list-windows\" ]; then\n  echo impl-01\n  exit 0\nfi\nexit 0\n")
+	writeFile(t, configPath, "repo: \".\"\nbase_branch: main\ndefault_remote: origin\nsession: yard-test\nagents:\n  implementation:\n    command: missing-agent\n  local_review:\n    command: missing-agent\n  pr_review:\n    command: missing-agent\n")
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf("tasks:\n  - id: one\n    issue: 338\n    checkbox: One task\n    service_family: s3\n    branch: one\n    worktree: %q\n    status: worktree_created\n    pr_url: \"\"\n    pr_number: 0\n", worktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "wave", "launch", "--limit", "1")
+	if err == nil {
+		t.Fatalf("expected wave launch failure when no selected tasks start\noutput:\n%s", out)
+	}
+	assertContains(t, out, "skip one:")
+	assertContains(t, out, "selected 0 task(s)")
+	assertContains(t, out, "failed to launch 1 selected task(s): one")
+}
+
 func TestWaveLaunchSurfacesWorktreeDirtyProbeFailure(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
