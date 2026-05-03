@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/chenrui333/agent-yard/internal/execx"
@@ -22,6 +23,11 @@ type Worktree struct {
 	Branch   string
 	Detached bool
 	Bare     bool
+}
+
+type AheadBehind struct {
+	Behind int
+	Ahead  int
 }
 
 func New() Client {
@@ -66,6 +72,11 @@ func (c Client) BranchShowCurrent(ctx context.Context, dir string) (string, erro
 	return strings.TrimSpace(result.Stdout), nil
 }
 
+func (c Client) VerifyRef(ctx context.Context, dir, ref string) error {
+	_, err := c.run(ctx, dir, "rev-parse", "--verify", ref)
+	return err
+}
+
 func (c Client) StatusPorcelain(ctx context.Context, dir string) (string, error) {
 	result, err := c.run(ctx, dir, "status", "--porcelain")
 	if err != nil {
@@ -102,6 +113,15 @@ func (c Client) AddWorktree(ctx context.Context, repo, branch, path, remote, bas
 	return err
 }
 
+func (c Client) AddDetachedWorktree(ctx context.Context, repo, path, remote, baseBranch string) error {
+	if path == "" {
+		return fmt.Errorf("worktree path is required")
+	}
+	base := remote + "/" + baseBranch
+	_, err := c.run(ctx, repo, "worktree", "add", "--detach", path, base)
+	return err
+}
+
 func (c Client) MergeBase(ctx context.Context, dir, ref string) (string, error) {
 	result, err := c.run(ctx, dir, "merge-base", "HEAD", ref)
 	if err != nil {
@@ -113,6 +133,37 @@ func (c Client) MergeBase(ctx context.Context, dir, ref string) (string, error) 
 func (c Client) DiffCheck(ctx context.Context, dir string) error {
 	_, err := c.run(ctx, dir, "diff", "--check")
 	return err
+}
+
+func (c Client) AheadBehind(ctx context.Context, dir, baseRef string) (AheadBehind, error) {
+	result, err := c.run(ctx, dir, "rev-list", "--left-right", "--count", baseRef+"...HEAD")
+	if err != nil {
+		return AheadBehind{}, err
+	}
+	return ParseAheadBehind(result.Stdout)
+}
+
+func (c Client) ChangedFilesSince(ctx context.Context, dir, baseRef string) ([]string, error) {
+	base, err := c.MergeBase(ctx, dir, baseRef)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.run(ctx, dir, "diff", "--name-only", base+"..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmptyLines(result.Stdout), nil
+}
+
+func (c Client) RemoteBranchExists(ctx context.Context, dir, remote, branch string) (bool, error) {
+	if branch == "" {
+		return false, nil
+	}
+	result, err := c.run(ctx, dir, "ls-remote", "--heads", remote, branch)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(result.Stdout) != "", nil
 }
 
 func ParseWorktreeList(output string) []Worktree {
@@ -155,4 +206,31 @@ func ParseWorktreeList(output string) []Worktree {
 	}
 	flush()
 	return worktrees
+}
+
+func ParseAheadBehind(output string) (AheadBehind, error) {
+	fields := strings.Fields(output)
+	if len(fields) != 2 {
+		return AheadBehind{}, fmt.Errorf("parse ahead/behind %q: expected two fields", strings.TrimSpace(output))
+	}
+	behind, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return AheadBehind{}, fmt.Errorf("parse behind count %q: %w", fields[0], err)
+	}
+	ahead, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return AheadBehind{}, fmt.Errorf("parse ahead count %q: %w", fields[1], err)
+	}
+	return AheadBehind{Behind: behind, Ahead: ahead}, nil
+}
+
+func splitNonEmptyLines(output string) []string {
+	var lines []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }

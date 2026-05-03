@@ -63,6 +63,13 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	waveOut := runYard(t, bin, dir, "--config", configPath, "launch-wave", "--limit", "2", "--dry-run", "--force")
 	assertContains(t, waveOut, "selected 1 task(s)")
 
+	wavePlanOut := runYard(t, bin, dir, "--config", configPath, "wave", "plan", "--limit", "2")
+	assertContains(t, wavePlanOut, "aws-route53")
+	assertContains(t, wavePlanOut, "distinct service_family")
+
+	wavePrepareOut := runYard(t, bin, dir, "--config", configPath, "wave", "prepare", "--limit", "2", "--dry-run")
+	assertContains(t, wavePrepareOut, "aws-route53")
+
 	prOut := runYard(t, bin, dir, "--config", configPath, "pr", "aws-route53", "--dry-run")
 	assertContains(t, prOut, "Refs #338")
 	assertContains(t, prOut, "head: aws-route53-resources")
@@ -72,7 +79,8 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	assertContains(t, localReviewOut, "local-review.md")
 
 	prReviewOut := runYard(t, bin, dir, "--config", configPath, "review-pr", "123", "--dry-run", "--force")
-	assertContains(t, prReviewOut, "window: pr-review-123")
+	assertContains(t, prReviewOut, "worktree:")
+	assertContains(t, prReviewOut, "window: pr-review-123-pr-review-a")
 	assertContains(t, prReviewOut, "pr-review.md")
 
 	claimOut := runYard(t, bin, dir, "--config", configPath, "claim", "aws-route53", "--agent", "impl-02")
@@ -81,6 +89,12 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: claimed")
 	assertContains(t, tasksData, "assigned_agent: impl-02")
+
+	setStatusOut := runYard(t, bin, dir, "--config", configPath, "set-status", "aws-route53", "blocked", "--note", "needs manual split")
+	assertContains(t, setStatusOut, "aws-route53 -> blocked")
+	tasksData = readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: blocked")
+	assertContains(t, tasksData, "note: needs manual split")
 }
 
 func TestYardWorktreeCreatesGitWorktree(t *testing.T) {
@@ -129,7 +143,17 @@ agents:
   - id: route53
     issue: 338
     checkbox: Route53 resources
+    service_family: route53
     branch: route53-resources
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
+  - id: s3
+    issue: 338
+    checkbox: S3 resources
+    service_family: s3
+    branch: s3-resources
     worktree: ""
     status: ready
     pr_url: ""
@@ -150,6 +174,24 @@ agents:
 	statusOut := runYard(t, bin, dir, "--config", configPath, "status")
 	assertContains(t, statusOut, "worktree_created")
 	assertContains(t, statusOut, "clean")
+
+	wavePlanOut := runYard(t, bin, dir, "--config", configPath, "wave", "plan", "--limit", "1")
+	assertContains(t, wavePlanOut, "s3")
+	assertContains(t, wavePlanOut, "distinct service_family")
+
+	wavePrepareOut := runYard(t, bin, dir, "--config", configPath, "wave", "prepare", "--limit", "1")
+	s3Worktree := filepath.Join(srcRoot, "repo.s3-resources")
+	assertContains(t, wavePrepareOut, "prepared 1 task(s)")
+	if _, err := os.Stat(filepath.Join(s3Worktree, ".git")); err != nil {
+		t.Fatalf("expected git worktree at %s: %v", s3Worktree, err)
+	}
+	tasksData = readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "assigned_agent: impl-01")
+	assertContains(t, tasksData, s3Worktree)
+
+	waveLaunchOut := runYard(t, bin, dir, "--config", configPath, "wave", "launch", "--limit", "1", "--dry-run", "--force")
+	assertContains(t, waveLaunchOut, "selected 1 task(s)")
+	assertContains(t, waveLaunchOut, "implement.md")
 }
 
 func buildYard(t *testing.T) string {

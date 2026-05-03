@@ -16,6 +16,9 @@ type Row struct {
 	Worktree     string
 	WorktreeOK   bool
 	Dirty        string
+	AheadBehind  string
+	ChangedFiles string
+	Remote       string
 	Tmux         string
 	PR           string
 	CIReview     string
@@ -23,13 +26,13 @@ type Row struct {
 
 func RenderSummary(w io.Writer, rows []Row) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TASK\tSTATUS\tBRANCH\tWORKTREE\tDIRTY\tTMUX\tPR\tCI/REVIEW")
+	fmt.Fprintln(tw, "TASK\tSTATUS\tBRANCH\tWORKTREE\tDIRTY\tA/B\tFILES\tREMOTE\tTMUX\tPR\tCI/REVIEW")
 	for _, row := range rows {
 		worktree := "missing"
 		if row.WorktreeOK {
 			worktree = "exists"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", row.TaskID, row.LedgerStatus, row.Branch, worktree, row.Dirty, row.Tmux, row.PR, row.CIReview)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", row.TaskID, row.LedgerStatus, row.Branch, worktree, row.Dirty, row.AheadBehind, row.ChangedFiles, row.Remote, row.Tmux, row.PR, row.CIReview)
 	}
 	_ = tw.Flush()
 }

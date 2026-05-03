@@ -18,3 +18,16 @@ func TestParseWorktreeList(t *testing.T) {
 		t.Fatalf("third worktree detached = false: %#v", got[2])
 	}
 }
+
+func TestParseAheadBehind(t *testing.T) {
+	got, err := ParseAheadBehind("2\t5\n")
+	if err != nil {
+		t.Fatalf("ParseAheadBehind returned error: %v", err)
+	}
+	if got.Behind != 2 || got.Ahead != 5 {
+		t.Fatalf("AheadBehind = %#v; want behind=2 ahead=5", got)
+	}
+	if _, err := ParseAheadBehind("oops"); err == nil {
+		t.Fatal("ParseAheadBehind returned nil for invalid output")
+	}
+}

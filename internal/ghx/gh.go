@@ -127,6 +127,16 @@ func (c Client) PRChecks(ctx context.Context, dir, repoArg string, pr int) (stri
 	return result.Stdout, nil
 }
 
+func (c Client) PRCheckout(ctx context.Context, dir, repoArg string, pr int, detach bool) error {
+	args := []string{"pr", "checkout", strconv.Itoa(pr)}
+	if detach {
+		args = append(args, "--detach")
+	}
+	args = withRepo(args, repoArg)
+	_, err := c.run(ctx, dir, args...)
+	return err
+}
+
 func ParsePRView(output string) (PullRequest, error) {
 	var pr PullRequest
 	if err := json.Unmarshal([]byte(output), &pr); err != nil {

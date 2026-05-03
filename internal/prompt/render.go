@@ -107,6 +107,16 @@ You are working on task {{.Task.ID}} from issue #{{.Issue}}.
 - Prefer focused diffs.
 - Update docs and tests when relevant.
 
+## Project-Specific Correctness
+
+- Read the task text and linked issue carefully before changing code.
+- Verify the upstream or framework contract before wiring new behavior.
+- Use canonical identifiers and state formats expected by the target project.
+- Avoid generated name or label collisions; keep names stable and unique.
+- Add focused tests for filters, selectors, parsing, or discovery behavior when relevant.
+- Document unsupported, deleted, non-refreshable, or intentionally skipped cases instead of forcing partial support.
+- Keep shared registration, docs, and helper changes minimal so parallel task lanes do not conflict.
+
 ## Validation Examples
 
 - GOWORK=off go test ./providers/aws -run 'Test<ServiceOrFeature>' -count=1

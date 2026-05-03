@@ -1,8 +1,8 @@
 # agent-yard
 
-agent-yard is a thin local orchestration CLI for running coding and review agents across git worktrees. The binary is named yard.
+agent-yard is a thin local orchestration CLI for running multiple coding and review agents across git worktrees. The binary is named yard.
 
-It uses tmux as the durable execution backend, git worktrees as the implementation isolation boundary, and GitHub issues and pull requests as the collaboration boundary.
+It is intentionally generic: tmux is the durable execution backend for agent lanes, git worktrees are the implementation isolation boundary, and GitHub issues and pull requests are an optional collaboration boundary.
 
 ## Non-goals
 
@@ -52,6 +52,7 @@ Renovate is configured for dependency PRs with semantic commit titles, a two-day
 Initialize local state in the orchestration repository:
 
     yard init
+    yard doctor
 
 Edit yard.yaml and tasks.yaml. Then inspect the board:
 
@@ -66,10 +67,19 @@ Launch one task or a small wave:
 
     yard launch aws-route53 --dry-run
     yard launch-wave --limit 2 --dry-run
+    yard wave plan --limit 3
+    yard wave prepare --limit 3 --dry-run
+    yard wave launch --limit 3 --dry-run
 
 Open a pull request after the task branch is ready:
 
     yard pr aws-route53 --dry-run
+
+Inspect or attach to tmux-backed lanes:
+
+    yard attach
+    yard attach aws-route53
+    yard capture aws-route53
 
 ## Sample yard.yaml
 
@@ -117,15 +127,19 @@ Open a pull request after the task branch is ready:
         pr_url: ""
         pr_number: 0
 
-## Terraformer AWS Workflow
+## Generic Multi-Agent Workflow
 
 1. Add one tasks.yaml entry per issue checkbox.
 2. Run yard worktree TASK_ID to create a branch-specific git worktree from origin/main.
 3. Run yard launch TASK_ID to start the implementation lane in tmux.
 4. Run yard review-local TASK_ID before opening a PR.
 5. Run yard pr TASK_ID when the branch is ready.
-6. Run yard review-pr PR_NUMBER to launch a no-push PR review lane.
+6. Run yard review-pr PR_NUMBER --lane pr-review-a to launch an isolated no-push PR review lane.
 7. Use yard status and yard board as the coordinator view.
+
+For larger waves, use yard wave plan to select distinct service families when possible, yard wave prepare to claim lanes and create worktrees, and yard wave launch to start the tmux sessions.
+
+Terraformer AWS coverage is a good example campaign for this model, but project-specific implementation rules belong in local prompt templates rather than the built-in defaults.
 
 ## Safety Model
 
@@ -138,8 +152,7 @@ Open a pull request after the task branch is ready:
 
 ## Roadmap
 
-- doctor command for dependency checks.
-- attach, list, show, and set-status commands.
+- list and show commands.
 - Shell completions from Cobra.
 - Better GitHub issue checkbox reconciliation.
 - Optional Homebrew formula notes once the CLI shape stabilizes.

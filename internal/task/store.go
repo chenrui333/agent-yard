@@ -21,6 +21,10 @@ func NewStore(path string) Store {
 }
 
 func (s Store) Load() (Ledger, error) {
+	return s.loadUnlocked()
+}
+
+func (s Store) loadUnlocked() (Ledger, error) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -40,10 +44,25 @@ func (s Store) Load() (Ledger, error) {
 }
 
 func (s Store) Save(ledger Ledger) error {
-	Normalize(&ledger)
-	if err := Validate(ledger); err != nil {
-		return err
-	}
+	return s.withLock(func() error {
+		return s.saveUnlocked(ledger)
+	})
+}
+
+func (s Store) WithLock(update func(*Ledger) error) error {
+	return s.withLock(func() error {
+		ledger, err := s.loadUnlocked()
+		if err != nil {
+			return err
+		}
+		if err := update(&ledger); err != nil {
+			return err
+		}
+		return s.saveUnlocked(ledger)
+	})
+}
+
+func (s Store) withLock(run func() error) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
 		return fmt.Errorf("create tasks dir: %w", err)
 	}
@@ -52,7 +71,17 @@ func (s Store) Save(ledger Ledger) error {
 		return err
 	}
 	defer lockFile.Release()
+	return run()
+}
 
+func (s Store) saveUnlocked(ledger Ledger) error {
+	Normalize(&ledger)
+	if err := Validate(ledger); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+		return fmt.Errorf("create tasks dir: %w", err)
+	}
 	data, err := yaml.Marshal(&ledger)
 	if err != nil {
 		return fmt.Errorf("marshal tasks: %w", err)
@@ -77,12 +106,7 @@ func (s Store) Save(ledger Ledger) error {
 }
 
 func (s Store) Update(id string, update func(*Task) error) error {
-	ledger, err := s.Load()
-	if err != nil {
-		return err
-	}
-	if err := ledger.Update(id, update); err != nil {
-		return err
-	}
-	return s.Save(ledger)
+	return s.WithLock(func(ledger *Ledger) error {
+		return ledger.Update(id, update)
+	})
 }

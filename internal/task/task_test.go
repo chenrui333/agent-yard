@@ -69,3 +69,45 @@ func TestStoreSaveLoad(t *testing.T) {
 		t.Fatalf("loaded ledger = %#v", loaded)
 	}
 }
+
+func TestStoreUpdateLocksAcrossLoadMutateSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.yaml")
+	store := NewStore(path)
+	if err := store.Save(Ledger{Tasks: []Task{{ID: "route53", Status: StatusReady}}}); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	if err := store.Update("route53", func(item *Task) error {
+		item.Status = StatusRunning
+		item.AssignedAgent = "impl-01"
+		return nil
+	}); err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if _, err := os.Stat(path + ".lock"); !os.IsNotExist(err) {
+		t.Fatalf("lock file was not removed, stat err = %v", err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	item, _, ok := loaded.Find("route53")
+	if !ok {
+		t.Fatal("updated task not found")
+	}
+	if item.Status != StatusRunning || item.AssignedAgent != "impl-01" {
+		t.Fatalf("updated task = %#v", item)
+	}
+}
+
+func TestParseStatus(t *testing.T) {
+	status, err := ParseStatus("merge_ready")
+	if err != nil {
+		t.Fatalf("ParseStatus returned error: %v", err)
+	}
+	if status != StatusMergeReady {
+		t.Fatalf("status = %q; want %q", status, StatusMergeReady)
+	}
+	if _, err := ParseStatus("wat"); err == nil {
+		t.Fatal("ParseStatus returned nil for invalid status")
+	}
+}

@@ -3,6 +3,9 @@ package tmux
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/chenrui333/agent-yard/internal/execx"
@@ -14,6 +17,13 @@ type Runner interface {
 
 type Client struct {
 	Runner Runner
+}
+
+type Pane struct {
+	ID             string
+	CurrentCommand string
+	Dead           bool
+	DeadStatus     string
 }
 
 func New() Client {
@@ -63,6 +73,34 @@ func (c Client) SendKeys(ctx context.Context, target, command string) error {
 	return err
 }
 
+func (c Client) CapturePane(ctx context.Context, target string) (string, error) {
+	result, err := c.run(ctx, "capture-pane", "-p", "-t", target)
+	if err != nil {
+		return "", err
+	}
+	return result.Stdout, nil
+}
+
+func (c Client) ListPanes(ctx context.Context, target string) ([]Pane, error) {
+	result, err := c.run(ctx, "list-panes", "-t", target, "-F", "#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_dead_status}")
+	if err != nil {
+		return nil, err
+	}
+	return ParsePaneList(result.Stdout), nil
+}
+
+func Attach(ctx context.Context, target string) error {
+	args := []string{"attach-session", "-t", target}
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("run tmux %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
+}
+
 func (c Client) ListSessions(ctx context.Context) ([]string, error) {
 	result, err := c.run(ctx, "list-sessions", "-F", "#{session_name}")
 	if err != nil {
@@ -98,6 +136,27 @@ func (c Client) WindowExists(ctx context.Context, session, name string) (bool, e
 
 func Target(session, window string) string {
 	return session + ":" + window
+}
+
+func ParsePaneList(output string) []Pane {
+	var panes []Pane
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		for len(parts) < 4 {
+			parts = append(parts, "")
+		}
+		panes = append(panes, Pane{
+			ID:             parts[0],
+			CurrentCommand: parts[1],
+			Dead:           parts[2] == "1",
+			DeadStatus:     parts[3],
+		})
+	}
+	return panes
 }
 
 func splitLines(output string) []string {

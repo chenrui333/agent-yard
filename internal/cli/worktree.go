@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,54 +32,62 @@ func (a *App) runWorktree(cmd *cobra.Command, taskID string) error {
 	if !ok {
 		return fmt.Errorf("task %q not found", taskID)
 	}
+	worktreePath, _, err := a.ensureTaskWorktree(cmd.Context(), cfg, *item, true)
+	if err != nil {
+		return err
+	}
+	return store.Update(taskID, func(current *task.Task) error {
+		current.Worktree = worktreePath
+		current.Status = task.StatusWorktreeCreated
+		return nil
+	})
+}
+
+func (a *App) ensureTaskWorktree(ctx context.Context, cfg config.Config, item task.Task, fetch bool) (string, bool, error) {
 	if item.Branch == "" {
-		return fmt.Errorf("task %q has no branch", taskID)
+		return "", false, fmt.Errorf("task %q has no branch", item.ID)
 	}
 	repo := config.RepoPath(a.configPath, cfg)
 	if stat, err := os.Stat(repo); err != nil {
-		return fmt.Errorf("repo path %s is not accessible: %w", repo, err)
+		return "", false, fmt.Errorf("repo path %s is not accessible: %w", repo, err)
 	} else if !stat.IsDir() {
-		return fmt.Errorf("repo path %s is not a directory", repo)
+		return "", false, fmt.Errorf("repo path %s is not a directory", repo)
 	}
 	if err := gitx.EnsureExists(); err != nil {
-		return err
+		return "", false, err
 	}
 	git := gitx.New()
-	ctx := cmd.Context()
-	if err := git.Fetch(ctx, repo, cfg.DefaultRemote); err != nil {
-		return err
+	if fetch {
+		if err := git.Fetch(ctx, repo, cfg.DefaultRemote); err != nil {
+			return "", false, err
+		}
 	}
-	worktreePath := a.taskWorktreePath(cfg, *item)
+	worktreePath := a.taskWorktreePath(cfg, item)
 	if worktreePath == "" {
-		return fmt.Errorf("task %q has no worktree and branch could not derive one", taskID)
+		return "", false, fmt.Errorf("task %q has no worktree and branch could not derive one", item.ID)
 	}
 	if stat, err := os.Stat(worktreePath); err == nil {
 		if !stat.IsDir() {
-			return fmt.Errorf("worktree path %s exists and is not a directory", worktreePath)
+			return "", false, fmt.Errorf("worktree path %s exists and is not a directory", worktreePath)
 		}
 		dirty, err := git.IsDirty(ctx, worktreePath)
 		if err != nil {
-			return fmt.Errorf("worktree path %s exists but is not a usable git worktree: %w", worktreePath, err)
+			return "", false, fmt.Errorf("worktree path %s exists but is not a usable git worktree: %w", worktreePath, err)
 		}
 		if dirty {
-			return fmt.Errorf("worktree path %s already exists and is dirty", worktreePath)
+			return "", false, fmt.Errorf("worktree path %s already exists and is dirty", worktreePath)
 		}
 		a.printf("worktree already exists: %s\n", worktreePath)
-	} else if os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
-			return fmt.Errorf("create worktree parent: %w", err)
-		}
-		if err := git.AddWorktree(ctx, repo, item.Branch, worktreePath, cfg.DefaultRemote, cfg.BaseBranch); err != nil {
-			return err
-		}
-		a.printf("created worktree: %s\n", worktreePath)
-	} else {
-		return fmt.Errorf("stat worktree path %s: %w", worktreePath, err)
+		return worktreePath, false, nil
+	} else if !os.IsNotExist(err) {
+		return "", false, fmt.Errorf("stat worktree path %s: %w", worktreePath, err)
 	}
-	item.Worktree = worktreePath
-	item.Status = task.StatusWorktreeCreated
-	if err := store.Save(ledger); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
+		return "", false, fmt.Errorf("create worktree parent: %w", err)
 	}
-	return nil
+	if err := git.AddWorktree(ctx, repo, item.Branch, worktreePath, cfg.DefaultRemote, cfg.BaseBranch); err != nil {
+		return "", false, err
+	}
+	a.printf("created worktree: %s\n", worktreePath)
+	return worktreePath, true, nil
 }
