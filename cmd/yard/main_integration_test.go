@@ -1060,7 +1060,7 @@ func TestPRPushesBranchAndRecordsExistingPR(t *testing.T) {
 
 	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\"}]"
+  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"headRepositoryOwner\":{\"login\":\"o\"},\"headRepository\":{\"name\":\"r\"},\"isCrossRepository\":false}]"
   exit 0
 fi
 echo "unexpected gh args: $*" >&2
@@ -1128,7 +1128,7 @@ func TestPRRejectsExistingPRWithWrongBase(t *testing.T) {
 
 	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"release\"}]"
+  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"release\",\"headRepositoryOwner\":{\"login\":\"o\"},\"headRepository\":{\"name\":\"r\"},\"isCrossRepository\":false}]"
   exit 0
 fi
 echo "unexpected gh args: $*" >&2
@@ -1164,7 +1164,7 @@ agents:
 	if err == nil {
 		t.Fatalf("expected pr feature to reject wrong-base PR\noutput:\n%s", out)
 	}
-	assertContains(t, out, "targets base \"release\", want \"main\"")
+	assertContains(t, out, "did not match base \"main\" and repository \"o/r\"")
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: needs_review")
 	assertContains(t, tasksData, "pr_number: 0")

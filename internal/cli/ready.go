@@ -194,7 +194,7 @@ func (a *App) readyPullRequest(ctx context.Context, cfg config.Config, item task
 		add("pr", "pass", pr.URL)
 		return pr, true
 	}
-	pr, ok, err := client.PRForBranch(ctx, repoPath, repoArg, item.Branch)
+	pr, ok, err := client.PRForBranch(ctx, repoPath, repoArg, item.Branch, cfg.BaseBranch)
 	if err != nil {
 		add("pr", "fail", err.Error())
 		return ghx.PullRequest{}, false
@@ -268,7 +268,7 @@ func reviewLaneWindow(prNumber int, lane string) string {
 }
 
 var reviewPriorityRE = regexp.MustCompile(`(?i)(\[[[:space:]]*P[123][[:space:]]*\]|\bP[123]\b)`)
-var reviewClearPassRE = regexp.MustCompile(`(?i)^\s*(there\s+(are|were|is)\s+)?no\s+(open\s+|remaining\s+)?P1\s*(/|,)?\s*P2\s*(/|,)?\s*(or\s+)?P3\b`)
+var reviewClearPassRE = regexp.MustCompile(`(?i)^[[:space:]]*(?:[-*+>][[:space:]]*)?(?:[^[:alnum:]\[]+[[:space:]]*)?(there\s+(are|were|is)\s+)?no\s+(open\s+|remaining\s+)?P1\s*(/|,)?\s*P2\s*(/|,)?\s*(or\s+)?P3\b`)
 
 func hasReviewPriorityFindings(output string) bool {
 	for _, line := range strings.Split(output, "\n") {

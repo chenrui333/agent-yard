@@ -84,7 +84,7 @@ func (a *App) runPR(cmd *cobra.Command, taskID string, opts *prOptions) error {
 			return err
 		}
 	}
-	if pr, ok, err := ghx.New().PRForBranch(cmd.Context(), config.RepoPath(a.configPath, cfg), config.GitHubRepoArg(cfg), item.Branch); err != nil {
+	if pr, ok, err := ghx.New().PRForBranch(cmd.Context(), config.RepoPath(a.configPath, cfg), config.GitHubRepoArg(cfg), item.Branch, cfg.BaseBranch); err != nil {
 		return err
 	} else if ok {
 		if pr.BaseRefName != "" && pr.BaseRefName != cfg.BaseBranch {

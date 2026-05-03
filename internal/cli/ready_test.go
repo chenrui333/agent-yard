@@ -7,8 +7,15 @@ import (
 )
 
 func TestHasReviewPriorityFindingsIgnoresClearPassMessage(t *testing.T) {
-	if hasReviewPriorityFindings("There are no P1/P2/P3 TODO comments.") {
-		t.Fatal("clear pass message should not count as TODO finding")
+	clearMessages := []string{
+		"There are no P1/P2/P3 TODO comments.",
+		"- No P1/P2/P3 TODO comments.",
+		"✅ No P1/P2/P3 TODO comments.",
+	}
+	for _, message := range clearMessages {
+		if hasReviewPriorityFindings(message) {
+			t.Fatalf("%q should not count as TODO finding", message)
+		}
 	}
 	if !hasReviewPriorityFindings("- [P2] fix the race") {
 		t.Fatal("P2 TODO finding was not detected")
