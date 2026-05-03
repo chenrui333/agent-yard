@@ -37,6 +37,8 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - README.md
+      - CHANGELOG.md
+      - RELEASE.md
 
 checksum:
   name_template: checksums.txt
