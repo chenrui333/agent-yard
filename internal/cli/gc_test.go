@@ -15,6 +15,8 @@ func TestPRNumberFromTaskURLRequiresPullSegment(t *testing.T) {
 		"https://github.com/o/r/issues/123",
 		"https://github.com/o/r/actions/runs/123",
 		"https://github.com/o/r/pull/not-a-number",
+		"https://github.com/o/r/pull/0",
+		"owner/repo/pull/123",
 	} {
 		if got := prNumberFromTaskURL(task.Task{PRURL: value}); got != 0 {
 			t.Fatalf("prNumberFromTaskURL(%q) = %d; want 0", value, got)

@@ -150,18 +150,22 @@ func reviewDirPRNumber(name string) int {
 }
 
 func prNumberFromTaskURL(item task.Task) int {
-	if item.PRURL == "" {
+	raw := strings.TrimSpace(item.PRURL)
+	if raw == "" {
 		return 0
 	}
-	parsed, err := url.Parse(item.PRURL)
-	if err != nil {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return 0
 	}
 	parts := strings.Split(strings.Trim(strings.TrimSpace(parsed.Path), "/"), "/")
 	if len(parts) < 2 || parts[len(parts)-2] != "pull" {
 		return 0
 	}
-	number, _ := strconv.Atoi(parts[len(parts)-1])
+	number, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil || number <= 0 {
+		return 0
+	}
 	return number
 }
 

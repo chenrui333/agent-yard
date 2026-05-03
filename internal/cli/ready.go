@@ -245,12 +245,12 @@ func reviewLaneWindow(prNumber int, lane string) string {
 }
 
 var reviewPriorityRE = regexp.MustCompile(`(?i)(\[[[:space:]]*P[123][[:space:]]*\]|\bP[123]\b)`)
+var reviewClearPassRE = regexp.MustCompile(`(?i)^\s*(there\s+(are|were|is)\s+)?no\s+(open\s+|remaining\s+)?P1\s*(/|,)?\s*P2\s*(/|,)?\s*(or\s+)?P3\b`)
 
 func hasReviewPriorityFindings(output string) bool {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, "no p1/p2/p3") || strings.Contains(lower, "no p1, p2") || strings.Contains(lower, "no p1 p2") {
+		if reviewClearPassRE.MatchString(line) {
 			continue
 		}
 		if reviewPriorityRE.MatchString(line) {

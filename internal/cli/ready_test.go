@@ -13,6 +13,9 @@ func TestHasReviewPriorityFindingsIgnoresClearPassMessage(t *testing.T) {
 	if !hasReviewPriorityFindings("- [P2] fix the race") {
 		t.Fatal("P2 TODO finding was not detected")
 	}
+	if !hasReviewPriorityFindings("- [P3] No P1/P2/P3 gate exists for this command") {
+		t.Fatal("P3 finding with negation text was not detected")
+	}
 }
 
 func TestReviewLaneWindowAcceptsLaneOrFullWindow(t *testing.T) {
