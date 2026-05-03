@@ -27,14 +27,23 @@ type Issue struct {
 }
 
 type PullRequest struct {
-	Number           int    `json:"number"`
-	Title            string `json:"title"`
-	URL              string `json:"url"`
-	State            string `json:"state"`
-	HeadRefName      string `json:"headRefName"`
-	BaseRefName      string `json:"baseRefName"`
-	MergeStateStatus string `json:"mergeStateStatus"`
-	ReviewDecision   string `json:"reviewDecision"`
+	Number            int           `json:"number"`
+	Title             string        `json:"title"`
+	URL               string        `json:"url"`
+	State             string        `json:"state"`
+	HeadRefName       string        `json:"headRefName"`
+	BaseRefName       string        `json:"baseRefName"`
+	MergeStateStatus  string        `json:"mergeStateStatus"`
+	ReviewDecision    string        `json:"reviewDecision"`
+	StatusCheckRollup []CheckRollup `json:"statusCheckRollup"`
+}
+
+type CheckRollup struct {
+	Name       string `json:"name"`
+	Workflow   string `json:"workflowName"`
+	State      string `json:"state"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
 }
 
 type CreatePROptions struct {
@@ -124,6 +133,26 @@ func (c Client) PRView(ctx context.Context, dir, repoArg string, pr int) (PullRe
 		return PullRequest{}, err
 	}
 	return ParsePRView(result.Stdout)
+}
+
+func (c Client) PRForBranch(ctx context.Context, dir, repoArg, branch string) (PullRequest, bool, error) {
+	if branch == "" {
+		return PullRequest{}, false, nil
+	}
+	args := []string{"pr", "list", "--head", branch, "--state", "open", "--limit", "1", "--json", "number,title,url,state,headRefName,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup"}
+	args = withRepo(args, repoArg)
+	result, err := c.run(ctx, dir, args...)
+	if err != nil {
+		return PullRequest{}, false, err
+	}
+	var prs []PullRequest
+	if err := json.Unmarshal([]byte(result.Stdout), &prs); err != nil {
+		return PullRequest{}, false, fmt.Errorf("parse gh PR list JSON: %w", err)
+	}
+	if len(prs) == 0 {
+		return PullRequest{}, false, nil
+	}
+	return prs[0], true, nil
 }
 
 func (c Client) PRChecks(ctx context.Context, dir, repoArg string, pr int) (string, error) {

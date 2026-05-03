@@ -44,6 +44,7 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 		app.newLaunchWaveCmd(),
 		app.newWaveCmd(),
 		app.newPRCmd(),
+		app.newReadyCmd(),
 		app.newReviewLocalCmd(),
 		app.newReviewPRCmd(),
 		app.newSyncCmd(),

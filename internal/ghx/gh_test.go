@@ -9,12 +9,15 @@ import (
 )
 
 func TestParsePRView(t *testing.T) {
-	pr, err := ParsePRView(`{"number":42,"title":"feat: add thing","url":"https://github.com/o/r/pull/42","state":"OPEN","headRefName":"feature","baseRefName":"main","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}`)
+	pr, err := ParsePRView(`{"number":42,"title":"feat: add thing","url":"https://github.com/o/r/pull/42","state":"OPEN","headRefName":"feature","baseRefName":"main","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]}`)
 	if err != nil {
 		t.Fatalf("ParsePRView returned error: %v", err)
 	}
 	if pr.Number != 42 || pr.HeadRefName != "feature" || pr.ReviewDecision != "APPROVED" {
 		t.Fatalf("parsed PR = %#v", pr)
+	}
+	if len(pr.StatusCheckRollup) != 1 || pr.StatusCheckRollup[0].Conclusion != "SUCCESS" {
+		t.Fatalf("checks = %#v", pr.StatusCheckRollup)
 	}
 }
 
@@ -36,6 +39,22 @@ func TestAuthStatusScopesHost(t *testing.T) {
 	}
 	if runner.command.Dir != "" {
 		t.Fatalf("dir = %q; want empty", runner.command.Dir)
+	}
+}
+
+func TestPRForBranchUsesHeadFilter(t *testing.T) {
+	runner := &recordingRunner{result: execx.Result{Stdout: `[{"number":7,"url":"https://github.com/o/r/pull/7","headRefName":"feature"}]`}}
+	client := Client{Runner: runner}
+	pr, ok, err := client.PRForBranch(context.Background(), "/repo", "owner/repo", "feature")
+	if err != nil {
+		t.Fatalf("PRForBranch returned error: %v", err)
+	}
+	if !ok || pr.Number != 7 {
+		t.Fatalf("PRForBranch = %#v, %v; want PR 7", pr, ok)
+	}
+	wantArgs := []string{"pr", "list", "--head", "feature", "--state", "open", "--limit", "1", "--json", "number,title,url,state,headRefName,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup", "--repo", "owner/repo"}
+	if !reflect.DeepEqual(runner.command.Args, wantArgs) {
+		t.Fatalf("args = %#v; want %#v", runner.command.Args, wantArgs)
 	}
 }
 

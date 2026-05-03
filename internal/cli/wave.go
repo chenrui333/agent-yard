@@ -14,6 +14,7 @@ import (
 	"github.com/chenrui333/agent-yard/internal/gitx"
 	"github.com/chenrui333/agent-yard/internal/prompt"
 	"github.com/chenrui333/agent-yard/internal/task"
+	"github.com/chenrui333/agent-yard/internal/tmux"
 	"github.com/chenrui333/agent-yard/internal/wave"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +38,7 @@ func (a *App) newWavePlanCmd() *cobra.Command {
 		Use:   "plan",
 		Short: "Plan a wave using distinct service families when possible",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runWavePlan(limit)
+			return a.runWavePlan(cmd, limit)
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 10, "maximum tasks to select")
@@ -77,11 +78,11 @@ func (a *App) newWaveLaunchCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *App) runWavePlan(limit int) error {
+func (a *App) runWavePlan(cmd *cobra.Command, limit int) error {
 	if limit < 1 {
 		return fmt.Errorf("--limit must be greater than zero")
 	}
-	_, ledger, _, err := a.loadState()
+	cfg, ledger, _, err := a.loadState()
 	if err != nil {
 		return err
 	}
@@ -89,6 +90,7 @@ func (a *App) runWavePlan(limit int) error {
 		Limit:                       limit,
 		EligibleStatuses:            wave.Eligible(task.StatusReady),
 		PreferDistinctServiceFamily: true,
+		ReservedLanes:               a.waveReservedLanes(cmd.Context(), cfg, ledger),
 	})
 	return a.renderWaveSelections(selections)
 }
@@ -106,6 +108,7 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 			Limit:                       limit,
 			EligibleStatuses:            wave.Eligible(task.StatusReady),
 			PreferDistinctServiceFamily: true,
+			ReservedLanes:               a.waveReservedLanes(cmd.Context(), cfg, ledger),
 		})
 		return a.renderWaveSelections(selections)
 	}
@@ -119,6 +122,7 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		Limit:                       limit,
 		EligibleStatuses:            wave.Eligible(task.StatusReady),
 		PreferDistinctServiceFamily: true,
+		ReservedLanes:               a.waveReservedLanes(cmd.Context(), cfg, ledger),
 	})
 	if len(selections) == 0 {
 		a.printf("selected 0 task(s)\n")
@@ -226,7 +230,7 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 		Limit:                       len(launchable.Tasks),
 		EligibleStatuses:            wave.Eligible(task.StatusClaimed, task.StatusWorktreeCreated),
 		PreferDistinctServiceFamily: true,
-		ReservedLanes:               wave.ReservedLanes(ledger),
+		ReservedLanes:               a.waveReservedLanes(cmd.Context(), cfg, ledger),
 	})
 	launched := 0
 	var launchFailures []string
@@ -248,6 +252,32 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 		return fmt.Errorf("failed to launch %d selected task(s): %s", len(launchFailures), strings.Join(launchFailures, ", "))
 	}
 	return nil
+}
+
+func (a *App) waveReservedLanes(ctx context.Context, cfg config.Config, ledger task.Ledger) map[string]string {
+	reserved := wave.ReservedLanes(ledger)
+	for lane, owner := range a.liveImplementationLanes(ctx, cfg) {
+		reserved[lane] = owner
+	}
+	return reserved
+}
+
+func (a *App) liveImplementationLanes(ctx context.Context, cfg config.Config) map[string]string {
+	if err := tmux.EnsureExists(); err != nil {
+		return nil
+	}
+	windows, err := tmux.New().ListWindows(ctx, cfg.Session)
+	if err != nil {
+		return nil
+	}
+	reserved := map[string]string{}
+	for _, window := range windows {
+		lane := agent.SanitizeWindowName(window)
+		if strings.HasPrefix(lane, "impl-") {
+			reserved[lane] = "<tmux:" + lane + ">"
+		}
+	}
+	return reserved
 }
 
 func (a *App) launchableWaveLedger(ctx context.Context, cfg config.Config, ledger task.Ledger, opts *launchOptions) (task.Ledger, error) {

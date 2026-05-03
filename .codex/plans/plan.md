@@ -1,57 +1,39 @@
-# Agent Yard MVP Implementation Plan
+# Agent Yard Implementation Plan
 
-## Current Repo State
+## Current State
 
-- The repository is empty except for Git metadata and the initial directories created for this implementation.
-- There is no existing Go module, command entrypoint, package layout, README, or test suite.
-- The remote repository exists, but there are no commits or default branch metadata yet.
+agent-yard is a Go CLI named `yard` for generic tmux-backed coding-agent orchestration. It uses git worktrees for task isolation, `tasks.yaml` as the local ledger, and optional GitHub issues and pull requests as collaboration boundaries.
 
-## Intended Package Layout
+## Package Layout
 
 - `cmd/yard/main.go`: binary entrypoint.
-- `internal/cli`: Cobra command definitions and flag parsing.
+- `internal/cli`: Cobra command definitions and workflow orchestration.
 - `internal/config`: `yard.yaml` schema, defaults, path resolution, load/save.
 - `internal/task`: `tasks.yaml` schema, status constants, validation, lookup, locked atomic store writes.
-- `internal/execx`: structured wrapper around `os/exec`.
-- `internal/gitx`, `internal/ghx`, `internal/tmux`: thin wrappers over system CLIs.
+- `internal/issue`: Markdown checkbox parsing and task import planning.
+- `internal/execx`, `internal/gitx`, `internal/ghx`, `internal/tmux`: thin wrappers over system CLIs.
 - `internal/agent`: shell quoting, tmux launch command construction, lane/window naming helpers.
 - `internal/prompt`: prompt rendering from files with embedded fallbacks.
-- `internal/status`: textual status and board rendering.
-- `prompts/`: editable default prompt templates.
+- `internal/status` and `internal/wave`: coordinator views and wave selection logic.
 
-## MVP Scope
+## Production Readiness Scope
 
-- Build a Cobra CLI named `yard` with the requested command surface.
 - Keep long-running agent processes inside tmux windows.
 - Use git worktrees as implementation isolation boundaries.
-- Use `tasks.yaml` as the editable task ledger while deriving status from git, tmux, and gh where cheap.
-- Support `--dry-run` for commands that would launch agents or mutate GitHub.
-- Keep placeholders non-crashing and explicit where full workflow automation is deferred.
-- Define the paired workset loop as the standard running model: one implementation terminal and one separate review terminal around one worktree, branch, and pull request.
-- Document that the dispatcher repeats implementation, review, follow-up, PR metadata updates, and review reruns until CI is green and no P1/P2/P3 TODO comments remain.
+- Import GitHub issue checkboxes into stable task entries while preserving existing ledger state.
+- Use wave plan/prepare/launch for larger worksets, reserving lanes already used by active ledger tasks or live `impl-*` tmux windows.
+- Harden PR creation with local preflights, default branch push, and existing-PR detection.
+- Use `yard ready` as the final workset gate before marking a task `merge_ready`.
+- Keep cleanup report-only by default; require explicit prune flags for removal.
 
-## Deferred Scope
+## Out of Scope
 
 - No web dashboard, daemon, terminal multiplexer, TUI, SQLite database, MCP integration, or Ghostty/iTerm automation.
-- No autonomous supervisor or retry loop.
-- No full GitHub issue checkbox reconciliation beyond an MVP issue-view/sync placeholder.
-- No automatic invocation of Codex `/review`; the review command remains a separate terminal process owned by the dispatcher.
-- No Homebrew formula yet, only package-friendly project shape.
-
-## Risks
-
-- Shell quoting must be centralized so tmux receives a safe command string.
-- `yard status` should tolerate missing external tools and stale ledger values without crashing.
-- Worktree creation must refuse conflicting dirty paths instead of overwriting local work.
-- Concurrent ledger writes must be locked and atomic.
-- Generated docs and examples should avoid machine-local absolute paths.
+- No autonomous supervisor or automatic `/review` invocation; the dispatcher owns the paired implementation/review terminal loop.
+- No campaign-specific built-in rules. Terraformer AWS is a good example campaign, but project-specific rules belong in local prompt templates.
 
 ## Test Plan
 
-- Unit test config defaults, load/save behavior, and path expansion.
-- Unit test task ledger validation, lookup/update, and locked atomic saves.
-- Unit test prompt rendering with embedded defaults and template files.
-- Unit test shell quoting and tmux launch command construction.
-- Unit test git worktree porcelain parsing.
-- Unit test minimal gh PR JSON parsing.
-- Run `gofmt ./...`, `go test ./...`, and `go vet ./...` before handoff.
+- Unit test config, task ledger, issue parsing/import, prompt rendering, git/gh/tmux parsing, status rendering, readiness helpers, and wave selection.
+- Integration test init, status/board, issue sync, worktree creation, wave prepare/launch, PR creation, PR review, readiness, and cleanup flows.
+- Run `go test ./...`, `go vet ./...`, GoReleaser check/snapshot, Renovate config validation, actionlint when available, and `git diff --check` before release handoff.
