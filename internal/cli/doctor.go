@@ -9,6 +9,7 @@ import (
 
 	"github.com/chenrui333/agent-yard/internal/config"
 	"github.com/chenrui333/agent-yard/internal/execx"
+	"github.com/chenrui333/agent-yard/internal/ghx"
 	"github.com/chenrui333/agent-yard/internal/gitx"
 	"github.com/chenrui333/agent-yard/internal/task"
 	"github.com/chenrui333/agent-yard/internal/tmux"
@@ -85,7 +86,7 @@ func (a *App) runDoctor(ctx context.Context) error {
 	}
 
 	if execx.Exists("gh") {
-		_, err := execx.Runner{}.Run(ctx, execx.Command{Name: "gh", Args: []string{"auth", "status", "--hostname", config.GitHubHost(cfg)}})
+		err := ghx.New().AuthStatus(ctx, config.GitHubHost(cfg))
 		if err != nil && !githubEnabled {
 			warn("gh auth", "not authenticated; required for GitHub commands")
 		} else {

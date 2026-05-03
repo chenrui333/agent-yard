@@ -58,6 +58,15 @@ func (c Client) run(ctx context.Context, dir string, args ...string) (execx.Resu
 	return c.Runner.Run(ctx, execx.Command{Name: "gh", Args: args, Dir: dir})
 }
 
+func (c Client) AuthStatus(ctx context.Context, host string) error {
+	args := []string{"auth", "status"}
+	if host != "" {
+		args = append(args, "--hostname", host)
+	}
+	_, err := c.run(ctx, "", args...)
+	return err
+}
+
 func (c Client) IssueView(ctx context.Context, dir, repoArg string, issue int) (Issue, error) {
 	args := []string{"issue", "view", strconv.Itoa(issue), "--json", "body,title,url"}
 	args = withRepo(args, repoArg)
