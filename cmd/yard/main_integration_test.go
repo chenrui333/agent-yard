@@ -519,6 +519,85 @@ agents:
 	assertContains(t, tasksData, "status: running")
 }
 
+func TestWaveLaunchContinuesAfterOccupiedManualLane(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	firstWorktree := filepath.Join(dir, "first-worktree")
+	secondWorktree := filepath.Join(dir, "second-worktree")
+	tmuxLog := filepath.Join(dir, "tmux.log")
+
+	if err := os.MkdirAll(firstWorktree, 0o755); err != nil {
+		t.Fatalf("create first worktree: %v", err)
+	}
+	if err := os.MkdirAll(secondWorktree, 0o755); err != nil {
+		t.Fatalf("create second worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "tmux"), fmt.Sprintf(`#!/bin/sh
+echo "$@" >> %q
+if [ "$1" = "has-session" ]; then
+  exit 0
+fi
+if [ "$1" = "list-windows" ]; then
+  echo impl-01
+  exit 0
+fi
+exit 0
+`, tmuxLog))
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: first
+    issue: 338
+    checkbox: First task
+    service_family: route53
+    branch: first
+    worktree: %q
+    status: worktree_created
+    pr_url: ""
+    pr_number: 0
+  - id: second
+    issue: 338
+    checkbox: Second task
+    service_family: s3
+    branch: second
+    worktree: %q
+    status: worktree_created
+    pr_url: ""
+    pr_number: 0
+`, firstWorktree, secondWorktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "wave", "launch", "--limit", "1")
+	if err != nil {
+		t.Fatalf("wave launch should continue after occupied manual lane: %v\noutput:\n%s", err, out)
+	}
+	assertContains(t, out, "skip first: tmux window impl-01 already exists")
+	assertContains(t, out, "selected 1 task(s)")
+
+	tmuxData := readFile(t, tmuxLog)
+	assertContains(t, tmuxData, "new-window -t yard-test -n impl-02")
+	assertContains(t, tmuxData, "send-keys -t yard-test:impl-02")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "id: first")
+	assertContains(t, tasksData, "status: worktree_created")
+	assertContains(t, tasksData, "id: second")
+	assertContains(t, tasksData, "assigned_agent: impl-02")
+	assertContains(t, tasksData, "status: running")
+}
+
 func TestWaveLaunchSurfacesWorktreeDirtyProbeFailure(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
