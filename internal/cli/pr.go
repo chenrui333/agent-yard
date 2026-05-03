@@ -56,7 +56,7 @@ func (a *App) runPR(cmd *cobra.Command, taskID string, opts *prOptions) error {
 	body := prBody(cfg, *item)
 	git := gitx.New()
 	if opts.dryRun {
-		if _, err := a.prPreflight(cmd.Context(), cfg, *item, opts.allowBehind, true); err != nil {
+		if _, err := a.prPreflight(cmd.Context(), cfg, *item, opts.allowBehind); err != nil {
 			a.printf("preflight: would fail: %v\n", err)
 		} else {
 			a.printf("preflight: ok\n")
@@ -75,7 +75,7 @@ func (a *App) runPR(cmd *cobra.Command, taskID string, opts *prOptions) error {
 	if err := git.Fetch(cmd.Context(), config.RepoPath(a.configPath, cfg), cfg.DefaultRemote); err != nil {
 		return err
 	}
-	worktreePath, err := a.prPreflight(cmd.Context(), cfg, *item, opts.allowBehind, true)
+	worktreePath, err := a.prPreflight(cmd.Context(), cfg, *item, opts.allowBehind)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (a *App) runPR(cmd *cobra.Command, taskID string, opts *prOptions) error {
 	})
 }
 
-func (a *App) prPreflight(ctx context.Context, cfg config.Config, item task.Task, allowBehind, strict bool) (string, error) {
+func (a *App) prPreflight(ctx context.Context, cfg config.Config, item task.Task, allowBehind bool) (string, error) {
 	worktreePath := a.taskWorktreePath(cfg, item)
 	if worktreePath == "" {
 		return "", fmt.Errorf("task %q has no worktree", item.ID)
@@ -152,10 +152,7 @@ func (a *App) prPreflight(ctx context.Context, cfg config.Config, item task.Task
 	}
 	aheadBehind, err := git.AheadBehind(ctx, worktreePath, baseRef)
 	if err != nil {
-		if strict {
-			return "", err
-		}
-		return worktreePath, nil
+		return "", err
 	}
 	if aheadBehind.Ahead == 0 {
 		return "", fmt.Errorf("branch %q has no commits ahead of %s", item.Branch, baseRef)
