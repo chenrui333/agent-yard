@@ -1,0 +1,173 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/chenrui333/agent-yard/internal/gitx"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+)
+
+const (
+	reviewResultClear    = "clear"
+	reviewResultFindings = "findings"
+)
+
+type reviewResultOptions struct {
+	lane       string
+	status     string
+	priorities []string
+	summary    string
+}
+
+type reviewResult struct {
+	PRNumber   int      `yaml:"pr_number"`
+	TaskID     string   `yaml:"task_id"`
+	Lane       string   `yaml:"lane"`
+	Head       string   `yaml:"head,omitempty"`
+	Status     string   `yaml:"status"`
+	Priorities []string `yaml:"priorities,omitempty"`
+	Summary    string   `yaml:"summary,omitempty"`
+	RecordedAt string   `yaml:"recorded_at"`
+}
+
+func (a *App) newReviewResultCmd() *cobra.Command {
+	opts := &reviewResultOptions{lane: "pr-review-a", status: reviewResultClear}
+	cmd := &cobra.Command{
+		Use:   "review-result <task-id>",
+		Short: "Record a structured PR review result for readiness checks",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.runReviewResult(cmd, args[0], opts)
+		},
+	}
+	cmd.Flags().StringVar(&opts.lane, "lane", opts.lane, "paired PR review lane")
+	cmd.Flags().StringVar(&opts.status, "status", opts.status, "review result status: clear or findings")
+	cmd.Flags().StringArrayVar(&opts.priorities, "priority", nil, "finding priority such as P1, P2, or P3; repeatable")
+	cmd.Flags().StringVar(&opts.summary, "summary", "", "short review result summary")
+	return cmd
+}
+
+func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewResultOptions) error {
+	cfg, ledger, _, err := a.loadState()
+	if err != nil {
+		return err
+	}
+	item, _, ok := ledger.Find(taskID)
+	if !ok {
+		return fmt.Errorf("task %q not found", taskID)
+	}
+	prNumber := item.PRNumber
+	if prNumber == 0 {
+		prNumber = prNumberFromTaskURL(*item)
+	}
+	if prNumber == 0 {
+		return fmt.Errorf("task %q has no PR number", taskID)
+	}
+	status, err := normalizeReviewResultStatus(opts.status)
+	if err != nil {
+		return err
+	}
+	worktreePath := a.taskWorktreePath(cfg, *item)
+	if worktreePath == "" {
+		return fmt.Errorf("task %q has no worktree", taskID)
+	}
+	worktreePath, err = filepath.Abs(worktreePath)
+	if err != nil {
+		return err
+	}
+	head, err := gitx.New().RevParse(cmd.Context(), worktreePath, "HEAD")
+	if err != nil {
+		return fmt.Errorf("resolve task HEAD in %s: %w", worktreePath, err)
+	}
+	result := reviewResult{
+		PRNumber:   prNumber,
+		TaskID:     taskID,
+		Lane:       reviewLaneWindow(prNumber, opts.lane),
+		Head:       head,
+		Status:     status,
+		Priorities: normalizeReviewPriorities(opts.priorities),
+		Summary:    strings.TrimSpace(opts.summary),
+		RecordedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	path := a.reviewResultPath(prNumber, opts.lane)
+	if err := a.saveReviewResult(path, result); err != nil {
+		return err
+	}
+	a.printf("recorded review result: %s\n", path)
+	return nil
+}
+
+func normalizeReviewResultStatus(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case reviewResultClear:
+		return reviewResultClear, nil
+	case reviewResultFindings:
+		return reviewResultFindings, nil
+	default:
+		return "", fmt.Errorf("invalid review result status %q", value)
+	}
+}
+
+func normalizeReviewPriorities(values []string) []string {
+	priorities := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.ToUpper(strings.TrimSpace(value))
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		priorities = append(priorities, value)
+	}
+	return priorities
+}
+
+func (a *App) reviewResultPath(prNumber int, lane string) string {
+	return a.yardPath("review-results", reviewLaneWindow(prNumber, lane)+".yaml")
+}
+
+func (a *App) saveReviewResult(path string, result reviewResult) error {
+	data, err := yaml.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshal review result: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create review result dir: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func (a *App) loadReviewResult(prNumber int, lane string) (reviewResult, bool, error) {
+	path := a.reviewResultPath(prNumber, lane)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return reviewResult{}, false, nil
+	}
+	if err != nil {
+		return reviewResult{}, false, fmt.Errorf("read review result %s: %w", path, err)
+	}
+	var result reviewResult
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return reviewResult{}, false, fmt.Errorf("parse review result %s: %w", path, err)
+	}
+	return result, true, nil
+}
+
+func reviewResultDetail(result reviewResult) string {
+	parts := []string{result.Lane, result.Status}
+	if result.Head != "" {
+		parts = append(parts, result.Head)
+	}
+	if len(result.Priorities) > 0 {
+		parts = append(parts, strings.Join(result.Priorities, ","))
+	}
+	if result.Summary != "" {
+		parts = append(parts, result.Summary)
+	}
+	return strings.Join(parts, " ")
+}

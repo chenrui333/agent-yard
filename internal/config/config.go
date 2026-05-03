@@ -36,6 +36,7 @@ type WorktreeConfig struct {
 }
 
 type AgentsConfig struct {
+	Commander      AgentCommand `yaml:"commander"`
 	Implementation AgentCommand `yaml:"implementation"`
 	LocalReview    AgentCommand `yaml:"local_review"`
 	PRReview       AgentCommand `yaml:"pr_review"`
@@ -57,17 +58,21 @@ func Default() Config {
 			Prefix: "yard.",
 		},
 		Agents: AgentsConfig{
+			Commander: AgentCommand{
+				Command: "codex",
+				Args:    []string{"exec", "--sandbox", "danger-full-access"},
+			},
 			Implementation: AgentCommand{
 				Command: "codex",
 				Args:    []string{"exec", "--sandbox", "danger-full-access"},
 			},
 			LocalReview: AgentCommand{
 				Command: "codex",
-				Args:    []string{"review"},
+				Args:    []string{"exec", "--sandbox", "danger-full-access"},
 			},
 			PRReview: AgentCommand{
 				Command: "codex",
-				Args:    []string{"review"},
+				Args:    []string{"exec", "--sandbox", "danger-full-access"},
 			},
 		},
 	}
@@ -92,6 +97,9 @@ func ApplyDefaults(cfg *Config) {
 	}
 	if cfg.Worktrees.Prefix == "" {
 		cfg.Worktrees.Prefix = defaults.Worktrees.Prefix
+	}
+	if cfg.Agents.Commander.Command == "" {
+		cfg.Agents.Commander = defaults.Agents.Commander
 	}
 	if cfg.Agents.Implementation.Command == "" {
 		cfg.Agents.Implementation = defaults.Agents.Implementation

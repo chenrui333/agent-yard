@@ -17,6 +17,12 @@ func TestLoadOrDefault(t *testing.T) {
 	if cfg.Agents.Implementation.Command != "codex" {
 		t.Fatalf("Implementation command = %q; want codex", cfg.Agents.Implementation.Command)
 	}
+	if cfg.Agents.Commander.Command != "codex" {
+		t.Fatalf("Commander command = %q; want codex", cfg.Agents.Commander.Command)
+	}
+	if len(cfg.Agents.PRReview.Args) != 3 {
+		t.Fatalf("PRReview args = %#v; want full-access codex exec defaults", cfg.Agents.PRReview.Args)
+	}
 }
 
 func TestLoadAppliesDefaults(t *testing.T) {

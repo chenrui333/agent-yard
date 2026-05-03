@@ -69,6 +69,7 @@ func (a *App) runDoctor(ctx context.Context) error {
 		add("gh", nil, "GitHub CLI")
 	}
 	add("tmux", tmux.EnsureExists(), "tmux backend")
+	add("agent commander", execxLook(cfg.Agents.Commander.Command), cfg.Agents.Commander.Command)
 	add("agent implementation", execxLook(cfg.Agents.Implementation.Command), cfg.Agents.Implementation.Command)
 	add("agent local_review", execxLook(cfg.Agents.LocalReview.Command), cfg.Agents.LocalReview.Command)
 	add("agent pr_review", execxLook(cfg.Agents.PRReview.Command), cfg.Agents.PRReview.Command)

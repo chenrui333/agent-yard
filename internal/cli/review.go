@@ -23,7 +23,7 @@ func (a *App) newReviewLocalCmd() *cobra.Command {
 	opts := &launchOptions{}
 	cmd := &cobra.Command{
 		Use:   "review-local <task-id>",
-		Short: "Launch a read-only local review lane for a task",
+		Short: "Launch a local reviewer lane for a task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runReviewLocal(cmd, args[0], opts)

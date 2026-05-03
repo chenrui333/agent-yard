@@ -24,7 +24,7 @@ func (a *App) newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rows := a.collectStatusRows(cmd, cfg, ledger, statusOptions{includeRemote: true})
+			rows := a.collectStatusRows(cmd, cfg, ledger, fullStatusOptions())
 			return statusx.RenderSummary(a.out, rows)
 		},
 	}
@@ -39,14 +39,52 @@ func (a *App) newBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rows := a.collectStatusRows(cmd, cfg, ledger, statusOptions{})
+			rows := a.collectStatusRows(cmd, cfg, ledger, boardStatusOptions())
 			return statusx.RenderBoard(a.out, rows)
 		},
 	}
 }
 
+func (a *App) newShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <task-id>",
+		Short: "Show detailed status for one task",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, ledger, _, err := a.loadState()
+			if err != nil {
+				return err
+			}
+			item, _, ok := ledger.Find(args[0])
+			if !ok {
+				return fmt.Errorf("task %q not found", args[0])
+			}
+			rows := a.collectStatusRows(cmd, cfg, task.Ledger{Tasks: []task.Task{*item}}, fullStatusOptions())
+			return statusx.RenderSummary(a.out, rows)
+		},
+	}
+}
+
 type statusOptions struct {
-	includeRemote bool
+	includeGitDetails bool
+	includeRemote     bool
+	includePRDetails  bool
+	includeTmux       bool
+}
+
+func fullStatusOptions() statusOptions {
+	return statusOptions{
+		includeGitDetails: true,
+		includeRemote:     true,
+		includePRDetails:  true,
+		includeTmux:       true,
+	}
+}
+
+func boardStatusOptions() statusOptions {
+	return statusOptions{
+		includeTmux: true,
+	}
 }
 
 func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger task.Ledger, opts statusOptions) []statusx.Row {
@@ -56,6 +94,15 @@ func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger ta
 	gh := ghx.New()
 	repo := config.RepoPath(a.configPath, cfg)
 	repoArg := config.GitHubRepoArg(cfg)
+	windowSet, windowsKnown := map[string]bool{}, false
+	if opts.includeTmux {
+		if windows, err := tmuxClient.ListWindows(ctx, cfg.Session); err == nil {
+			windowsKnown = true
+			for _, window := range windows {
+				windowSet[window] = true
+			}
+		}
+	}
 	var rows []statusx.Row
 	for _, item := range ledger.Tasks {
 		worktreePath := a.taskWorktreePath(cfg, item)
@@ -74,19 +121,25 @@ func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger ta
 		}
 		if stat, err := os.Stat(worktreePath); err == nil && stat.IsDir() {
 			row.WorktreeOK = true
-			if dirty, err := git.IsDirty(ctx, worktreePath); err == nil {
-				if dirty {
-					row.Dirty = "dirty"
-				} else {
-					row.Dirty = "clean"
+			if opts.includeGitDetails {
+				if dirty, err := git.IsDirty(ctx, worktreePath); err == nil {
+					if dirty {
+						row.Dirty = "dirty"
+					} else {
+						row.Dirty = "clean"
+					}
 				}
-			}
-			baseRef := cfg.DefaultRemote + "/" + cfg.BaseBranch
-			if aheadBehind, err := git.AheadBehind(ctx, worktreePath, baseRef); err == nil {
-				row.AheadBehind = fmt.Sprintf("+%d/-%d", aheadBehind.Ahead, aheadBehind.Behind)
-			}
-			if files, err := git.ChangedFilesSince(ctx, worktreePath, baseRef); err == nil {
-				row.ChangedFiles = strconv.Itoa(len(files))
+				baseRef := cfg.DefaultRemote + "/" + cfg.BaseBranch
+				if aheadBehind, err := git.AheadBehind(ctx, worktreePath, baseRef); err == nil {
+					row.AheadBehind = fmt.Sprintf("+%d/-%d", aheadBehind.Ahead, aheadBehind.Behind)
+				}
+				if files, err := git.ChangedFilesSince(ctx, worktreePath, baseRef); err == nil {
+					row.ChangedFiles = strconv.Itoa(len(files))
+				}
+			} else {
+				row.Dirty = "n/a"
+				row.AheadBehind = "n/a"
+				row.ChangedFiles = "n/a"
 			}
 			if opts.includeRemote {
 				if item.Branch == "" {
@@ -107,23 +160,28 @@ func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger ta
 			row.ChangedFiles = "n/a"
 			row.Remote = "n/a"
 		}
-		window := agent.TaskWindowName(item)
-		if exists, err := tmuxClient.WindowExists(ctx, cfg.Session, window); err == nil {
-			if exists {
-				target := tmux.Target(cfg.Session, window)
-				if panes, err := tmuxClient.ListPanes(ctx, target); err == nil {
-					row.Tmux = paneStatus(panes)
+		if opts.includeTmux {
+			window := agent.TaskWindowName(item)
+			if windowsKnown {
+				if windowSet[window] {
+					if panes, err := tmuxClient.ListPanes(ctx, tmux.Target(cfg.Session, window)); err == nil {
+						row.Tmux = paneStatus(panes)
+					} else {
+						row.Tmux = window
+					}
 				} else {
-					row.Tmux = window
+					row.Tmux = "missing"
 				}
-			} else {
-				row.Tmux = "missing"
 			}
+		} else {
+			row.Tmux = "n/a"
 		}
-		if item.PRNumber > 0 {
+		if opts.includePRDetails && item.PRNumber > 0 {
 			if pr, err := gh.PRView(ctx, repo, repoArg, item.PRNumber); err == nil {
 				row.CIReview = fmt.Sprintf("%s/%s", emptyAs(pr.MergeStateStatus, "unknown"), emptyAs(pr.ReviewDecision, "review-unknown"))
 			}
+		} else if !opts.includePRDetails {
+			row.CIReview = "n/a"
 		}
 		rows = append(rows, row)
 	}

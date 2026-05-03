@@ -17,6 +17,7 @@ agent-yard is a generic local orchestration tool for running multiple coding and
 - External tools should stay external: call `git`, `gh`, and `tmux` through wrappers instead of reimplementing them.
 - Long-running interactive agent commands belong in tmux, not streamed through the process wrapper.
 - Keep prompt defaults generic. Put campaign-specific instructions in local prompt templates when a user needs them.
+- Keep role behavior explicit in prompts and docs: commander coordinates, workers execute assigned objectives, reviewers review worker output.
 
 ## Paired Workset Model
 
@@ -29,25 +30,29 @@ The standard agent-yard unit is a paired workset:
 
 Scale by adding independent worksets, not by sharing terminals or worktrees. For example, workset 1 can use terminal 1 for implementation and terminal 2 for review, while workset 2 uses terminal 3 for implementation and terminal 4 for review. Each workset should be able to progress, block, review, and finish without interfering with the others.
 
-The dispatcher coordinates these pairs. It should not become an autonomous supervisor; it keeps the board visible, assigns lanes, launches terminals, and moves review feedback between the implementation and review terminals.
+The commander coordinates these pairs. It should not become an autonomous supervisor; it keeps the board visible, assigns lanes, launches terminals, records review results, and moves review feedback between the worker and reviewer terminals.
+
+beads/bd may be used as optional longer-lived memory and backlog context for the commander. Keep `tasks.yaml` as the yard execution ledger for active tmux/worktree lanes.
 
 ## Agent Loop Running Process
 
 For each workset, run this loop until the pull request is ready:
 
-1. The implementation agent changes code only inside the assigned worktree and produces focused commits.
-2. The review agent runs in a separate terminal against the same workset boundary and does not push code.
-3. For pull-request review, the review terminal may run:
+1. The commander triages work, assigns lanes, and watches `yard board`, `yard show`, and `yard lanes`.
+2. The worker agent changes code only inside the assigned worktree and produces focused commits.
+3. The reviewer agent runs in a separate terminal with full local access for inspection, build, and tests, but does not own code changes or push code.
+4. For pull-request review, the review terminal may run:
 
    ```text
    /review https://github.com/OWNER/REPO/pull/NUMBER
    ```
 
-4. Treat P1/P2/P3 review findings or TODO comments as required follow-up work.
-5. Send follow-up work back to the implementation terminal or patch it directly in the assigned worktree.
-6. After meaningful commits, update the pull request title or body so reviewers can understand the current scope without reconstructing history.
-7. Use `yard ready TASK_ID --review-lane LANE --write` as the final gate once CI is green and the review terminal reports no P1/P2/P3 TODO comments.
-8. Repeat until the readiness gate passes.
+5. Treat P1/P2/P3 review findings or TODO comments as required follow-up work.
+6. Send follow-up work back to the worker terminal or patch it directly in the assigned worktree.
+7. After meaningful commits, update the pull request title or body so reviewers can understand the current scope without reconstructing history.
+8. Use `yard review-result TASK_ID --lane LANE` when the reviewer reports no P1/P2/P3 TODO comments.
+9. Use `yard ready TASK_ID --review-lane LANE --write` as the final gate once CI is green and the review result is clear.
+10. Repeat until the readiness gate passes.
 
 ## Safety
 

@@ -151,7 +151,7 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 	if prOK {
 		addPRReadyChecks(pr, add)
 		if opts.reviewLane != "" {
-			a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, add)
+			a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, localWorktree, add)
 		} else if opts.write {
 			add("review lane", "fail", "--review-lane is required with --write")
 		} else {
@@ -241,12 +241,45 @@ func addPRReadyChecks(pr ghx.PullRequest, add func(string, string, string)) {
 	add("checks", "pass", fmt.Sprintf("%d check(s)", len(pr.StatusCheckRollup)))
 }
 
-func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, prNumber int, lane string, add func(string, string, string)) {
+func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, prNumber int, lane, worktree string, add func(string, string, string)) {
+	window := reviewLaneWindow(prNumber, lane)
+	if result, ok, err := a.loadReviewResult(prNumber, lane); err != nil {
+		add("review lane", "fail", err.Error())
+		return
+	} else if ok {
+		if result.PRNumber != 0 && result.PRNumber != prNumber {
+			add("review lane", "fail", fmt.Sprintf("review result PR %d, want %d", result.PRNumber, prNumber))
+			return
+		}
+		if result.Lane != "" && result.Lane != window {
+			add("review lane", "fail", fmt.Sprintf("review result lane %q, want %q", result.Lane, window))
+			return
+		}
+		if result.Head != "" && worktree != "" {
+			head, err := gitx.New().RevParse(ctx, worktree, "HEAD")
+			if err != nil {
+				add("review lane", "fail", err.Error())
+				return
+			}
+			if head != result.Head {
+				add("review lane", "fail", "review result is stale for current HEAD")
+				return
+			}
+		}
+		switch result.Status {
+		case reviewResultClear:
+			add("review lane", "pass", reviewResultDetail(result))
+		case reviewResultFindings:
+			add("review lane", "fail", reviewResultDetail(result))
+		default:
+			add("review lane", "fail", "unknown structured review result status "+result.Status)
+		}
+		return
+	}
 	if err := tmux.EnsureExists(); err != nil {
 		add("review lane", "fail", err.Error())
 		return
 	}
-	window := reviewLaneWindow(prNumber, lane)
 	output, err := tmux.New().CapturePane(ctx, tmux.Target(cfg.Session, window))
 	if err != nil {
 		add("review lane", "fail", err.Error())

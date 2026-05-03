@@ -24,7 +24,7 @@ You are working on task {{.Task.ID}} from issue #{{.Issue}}.
 - A separate review terminal may inspect the same worktree or pull request.
 - Treat P1/P2/P3 review findings and TODO comments as required follow-up work.
 - Make focused follow-up commits in this worktree when review feedback is valid.
-- Do not take over the review terminal's role; report what changed and any PR title/body updates the dispatcher should make.
+- Do not take over the review terminal's role; report what changed and any PR title/body updates the commander should make.
 
 ## Project-Specific Correctness
 
