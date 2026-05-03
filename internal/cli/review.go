@@ -97,16 +97,11 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 		if _, err := renderer.Render(prompt.KindPRReview, data); err != nil {
 			return err
 		}
-	} else if err := renderer.RenderToFile(prompt.KindPRReview, data, promptPath); err != nil {
-		return err
 	}
 	launchCommand := agent.BuildLaunchCommand(reviewWorktree, promptPath, cfg.Agents.PRReview)
 	if opts.dryRun {
 		a.printf("worktree: %s\ncheckout: %s\nwindow: %s\ncommand: %s\n", reviewWorktree, prCheckoutPreview(config.GitHubRepoArg(cfg), prNumber), window, launchCommand)
 		return nil
-	}
-	if _, err := a.ensurePRReviewWorktree(cmd.Context(), cfg, prNumber, lane, resetWorktree); err != nil {
-		return err
 	}
 	if err := tmux.EnsureExists(); err != nil {
 		return err
@@ -115,22 +110,36 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 		return err
 	}
 	tmuxClient := tmux.New()
-	if err := tmuxClient.EnsureSession(cmd.Context(), cfg.Session); err != nil {
-		return err
-	}
-	exists, err := tmuxClient.WindowExists(cmd.Context(), cfg.Session, window)
+	ctx := cmd.Context()
+	sessionExists, err := tmuxClient.HasSession(ctx, cfg.Session)
 	if err != nil {
 		return err
+	}
+	exists := false
+	if sessionExists {
+		exists, err = tmuxClient.WindowExists(ctx, cfg.Session, window)
+		if err != nil {
+			return err
+		}
 	}
 	if exists && !opts.force {
 		return fmt.Errorf("tmux window %s already exists", window)
 	}
+	if err := renderer.RenderToFile(prompt.KindPRReview, data, promptPath); err != nil {
+		return err
+	}
+	if _, err := a.ensurePRReviewWorktree(ctx, cfg, prNumber, lane, resetWorktree); err != nil {
+		return err
+	}
+	if err := tmuxClient.EnsureSession(ctx, cfg.Session); err != nil {
+		return err
+	}
 	if !exists {
-		if err := tmuxClient.NewWindow(cmd.Context(), cfg.Session, window); err != nil {
+		if err := tmuxClient.NewWindow(ctx, cfg.Session, window); err != nil {
 			return err
 		}
 	}
-	return tmuxClient.SendKeys(cmd.Context(), tmux.Target(cfg.Session, window), launchCommand)
+	return tmuxClient.SendKeys(ctx, tmux.Target(cfg.Session, window), launchCommand)
 }
 
 func (a *App) prReviewWorktreePath(prNumber int, lane string) string {

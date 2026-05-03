@@ -57,7 +57,16 @@ func (a *App) runDoctor(ctx context.Context) error {
 	}
 
 	add("git", gitx.EnsureExists(), "system git")
-	add("gh", execxLook("gh"), "GitHub CLI")
+	githubEnabled := githubConfigured(cfg)
+	if err := execxLook("gh"); err != nil {
+		if githubEnabled {
+			add("gh", err, "GitHub CLI")
+		} else {
+			warn("gh", "GitHub CLI missing; required for GitHub commands")
+		}
+	} else {
+		add("gh", nil, "GitHub CLI")
+	}
 	add("tmux", tmux.EnsureExists(), "tmux backend")
 	add("agent implementation", execxLook(cfg.Agents.Implementation.Command), cfg.Agents.Implementation.Command)
 	add("agent local_review", execxLook(cfg.Agents.LocalReview.Command), cfg.Agents.LocalReview.Command)
@@ -77,7 +86,11 @@ func (a *App) runDoctor(ctx context.Context) error {
 
 	if execx.Exists("gh") {
 		_, err := execx.Runner{}.Run(ctx, execx.Command{Name: "gh", Args: []string{"auth", "status"}})
-		add("gh auth", err, "authenticated GitHub CLI")
+		if err != nil && !githubEnabled {
+			warn("gh auth", "not authenticated; required for GitHub commands")
+		} else {
+			add("gh auth", err, "authenticated GitHub CLI")
+		}
 	}
 	if execx.Exists("git") && dirExists(repo) == nil {
 		baseRef := cfg.DefaultRemote + "/" + cfg.BaseBranch
@@ -101,6 +114,10 @@ func (a *App) runDoctor(ctx context.Context) error {
 		return fmt.Errorf("doctor found %d failure(s)", failures)
 	}
 	return nil
+}
+
+func githubConfigured(cfg config.Config) bool {
+	return cfg.GitHub.Owner != "" || cfg.GitHub.Repo != "" || cfg.GitHub.Issue != 0
 }
 
 func (a *App) renderDoctorRows(rows []doctorRow) error {

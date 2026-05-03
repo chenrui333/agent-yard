@@ -110,6 +110,37 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	assertNotContains(t, tasksData, "note:")
 }
 
+func TestDoctorWarnsWhenGitHubCLIAbsentWithoutGitHubConfig(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then exit 1; fi\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "doctor")
+	if err != nil {
+		t.Fatalf("doctor should warn but not fail without GitHub config: %v; output: %s", err, out)
+	}
+	assertContains(t, out, "gh")
+	assertContains(t, out, "warn")
+	assertContains(t, out, "GitHub CLI missing; required for GitHub commands")
+}
+
 func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
@@ -138,6 +169,52 @@ func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: ready")
 	assertNotContains(t, tasksData, "assigned_agent:")
+}
+
+func TestReviewPRChecksWindowBeforeWorktreeMutation(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	marker := filepath.Join(dir, "gh-called")
+
+	writeExecutable(t, filepath.Join(binDir, "tmux"), `#!/bin/sh
+if [ "$1" = "has-session" ]; then
+  exit 0
+fi
+if [ "$1" = "list-windows" ]; then
+  echo pr-review-123-pr-review-a
+  exit 0
+fi
+exit 0
+`)
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "gh"), fmt.Sprintf("#!/bin/sh\necho called >> %q\nexit 1\n", marker))
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "review-pr", "123", "--reset-worktree")
+	if err == nil {
+		t.Fatalf("expected existing review window error; output: %s", out)
+	}
+	assertContains(t, out, "tmux window pr-review-123-pr-review-a already exists")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("gh should not be called before existing window rejection, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".yard", "reviews")); !os.IsNotExist(err) {
+		t.Fatalf("review worktree should not be created before existing window rejection, stat error: %v", err)
+	}
 }
 
 func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
@@ -415,10 +492,17 @@ func runYard(t *testing.T, bin, dir string, args ...string) string {
 }
 
 func runYardErr(bin, dir string, args ...string) (string, error) {
+	return runYardErrEnv(bin, dir, nil, args...)
+}
+
+func runYardErrEnv(bin, dir string, env []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		return string(output), fmt.Errorf("yard %s: %w", strings.Join(args, " "), ctx.Err())
@@ -449,6 +533,16 @@ func writeFile(t *testing.T, path, data string) {
 	}
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func writeExecutable(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create dir for %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o755); err != nil {
+		t.Fatalf("write executable %s: %v", path, err)
 	}
 }
 
