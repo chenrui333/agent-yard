@@ -1,0 +1,50 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestLoadOrDefault(t *testing.T) {
+	cfg, err := LoadOrDefault(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatalf("LoadOrDefault returned error: %v", err)
+	}
+	if cfg.BaseBranch != "main" {
+		t.Fatalf("BaseBranch = %q; want main", cfg.BaseBranch)
+	}
+	if cfg.Agents.Implementation.Command != "codex" {
+		t.Fatalf("Implementation command = %q; want codex", cfg.Agents.Implementation.Command)
+	}
+}
+
+func TestLoadAppliesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "yard.yaml")
+	if err := os.WriteFile(path, []byte("repo: ../repo\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Repo != "../repo" {
+		t.Fatalf("Repo = %q; want ../repo", cfg.Repo)
+	}
+	if cfg.DefaultRemote != "origin" {
+		t.Fatalf("DefaultRemote = %q; want origin", cfg.DefaultRemote)
+	}
+	if len(cfg.Agents.Implementation.Args) != 3 {
+		t.Fatalf("Implementation args = %#v", cfg.Agents.Implementation.Args)
+	}
+}
+
+func TestResolvePath(t *testing.T) {
+	dir := t.TempDir()
+	got := ResolvePath(filepath.Join(dir, "yard.yaml"), "../work")
+	want := filepath.Clean(filepath.Join(dir, "../work"))
+	if got != want {
+		t.Fatalf("ResolvePath = %q; want %q", got, want)
+	}
+}
