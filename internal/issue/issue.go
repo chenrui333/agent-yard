@@ -68,7 +68,7 @@ func ImportTasks(existing task.Ledger, boxes []Checkbox, opts ImportOptions) Imp
 	for _, item := range existing.Tasks {
 		seenIDs[item.ID] = true
 		if item.Issue == opts.IssueNumber && strings.TrimSpace(item.Checkbox) != "" {
-			seenIssueCheckbox[checkboxKey(item.Checkbox)] = true
+			seenIssueCheckbox[issueCheckboxKey(item.ServiceFamily, item.Checkbox)] = true
 		}
 	}
 
@@ -80,16 +80,18 @@ func ImportTasks(existing task.Ledger, boxes []Checkbox, opts ImportOptions) Imp
 			result.Skipped++
 			continue
 		}
-		if seenIssueCheckbox[checkboxKey(box.Text)] {
+		key := issueCheckboxKey(box.Section, box.Text)
+		if seenIssueCheckbox[key] {
 			result.Skipped++
 			continue
 		}
 		if opts.Limit > 0 && result.Added >= opts.Limit {
+			result.Skipped++
 			continue
 		}
 		id := uniqueID(defaultID(opts, box), seenIDs)
 		seenIDs[id] = true
-		seenIssueCheckbox[checkboxKey(box.Text)] = true
+		seenIssueCheckbox[key] = true
 		branchBase := id
 		if opts.BranchPrefix != "" {
 			branchBase = opts.BranchPrefix + box.Slug
@@ -146,6 +148,10 @@ func cleanInlineMarkdown(value string) string {
 
 func checkboxKey(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(value), " "))
+}
+
+func issueCheckboxKey(section, value string) string {
+	return Slug(section) + "|" + checkboxKey(value)
 }
 
 func uniqueID(base string, used map[string]bool) string {

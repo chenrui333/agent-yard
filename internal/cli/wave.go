@@ -257,7 +257,9 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 func (a *App) waveReservedLanes(ctx context.Context, cfg config.Config, ledger task.Ledger) map[string]string {
 	reserved := wave.ReservedLanes(ledger)
 	for lane, owner := range a.liveImplementationLanes(ctx, cfg) {
-		reserved[lane] = owner
+		if _, exists := reserved[lane]; !exists {
+			reserved[lane] = owner
+		}
 	}
 	return reserved
 }

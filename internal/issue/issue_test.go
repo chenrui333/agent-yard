@@ -35,7 +35,7 @@ func TestParseCheckboxesTracksSections(t *testing.T) {
 
 func TestImportTasksPreservesExistingAndSkipsChecked(t *testing.T) {
 	existing := task.Ledger{Tasks: []task.Task{
-		{ID: "route53-existing", Issue: 338, Checkbox: "Hosted zone support", Branch: "route53-existing", Status: task.StatusRunning, PRNumber: 12},
+		{ID: "route53-existing", Issue: 338, Checkbox: "Hosted zone support", ServiceFamily: "route-53", Branch: "route53-existing", Status: task.StatusRunning, PRNumber: 12},
 	}}
 	boxes := ParseCheckboxes(`## Route 53
 - [ ] Hosted zone support
@@ -72,5 +72,27 @@ func TestImportTasksAvoidsBranchCollisions(t *testing.T) {
 	result := ImportTasks(existing, boxes, ImportOptions{IssueNumber: 338})
 	if got, want := result.Tasks[0].Branch, "issue-338-add-cloudfront-policies-2"; got != want {
 		t.Fatalf("Branch = %q; want %q", got, want)
+	}
+}
+
+func TestImportTasksDedupesWithinSectionOnly(t *testing.T) {
+	boxes := ParseCheckboxes(`## Route 53
+- [ ] Policy
+## S3
+- [ ] Policy
+`)
+	result := ImportTasks(task.EmptyLedger(), boxes, ImportOptions{IssueNumber: 338})
+	if result.Added != 2 {
+		t.Fatalf("Added = %d; want 2", result.Added)
+	}
+}
+
+func TestImportTasksCountsLimitSkips(t *testing.T) {
+	boxes := ParseCheckboxes(`- [ ] One
+- [ ] Two
+`)
+	result := ImportTasks(task.EmptyLedger(), boxes, ImportOptions{IssueNumber: 338, Limit: 1})
+	if result.Added != 1 || result.Skipped != 1 {
+		t.Fatalf("Added/Skipped = %d/%d; want 1/1", result.Added, result.Skipped)
 	}
 }

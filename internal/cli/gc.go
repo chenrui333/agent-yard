@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -78,8 +79,12 @@ func (a *App) pruneMergedGC(cmd *cobra.Command, force bool) error {
 		}
 	}
 	removed := 0
+	runsDir := a.yardPath("runs")
 	for taskID := range mergedTasks {
-		path := a.yardPath("runs", taskID)
+		path, err := safeYardChild(runsDir, taskID)
+		if err != nil {
+			return err
+		}
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("remove %s: %w", path, err)
 		}
@@ -148,10 +153,34 @@ func prNumberFromTaskURL(item task.Task) int {
 	if item.PRURL == "" {
 		return 0
 	}
-	parts := strings.Split(strings.TrimRight(item.PRURL, "/"), "/")
-	if len(parts) == 0 {
+	parsed, err := url.Parse(item.PRURL)
+	if err != nil {
+		return 0
+	}
+	parts := strings.Split(strings.Trim(strings.TrimSpace(parsed.Path), "/"), "/")
+	if len(parts) < 2 || parts[len(parts)-2] != "pull" {
 		return 0
 	}
 	number, _ := strconv.Atoi(parts[len(parts)-1])
 	return number
+}
+
+func safeYardChild(root, name string) (string, error) {
+	if strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("unsafe empty yard child path")
+	}
+	cleanName := filepath.Clean(name)
+	if filepath.IsAbs(name) || cleanName != name || cleanName == "." || strings.ContainsAny(name, `/\\`) || strings.HasPrefix(cleanName, "..") {
+		return "", fmt.Errorf("unsafe yard child path %q", name)
+	}
+	root = filepath.Clean(root)
+	path := filepath.Join(root, cleanName)
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("unsafe yard child path %q", name)
+	}
+	return path, nil
 }

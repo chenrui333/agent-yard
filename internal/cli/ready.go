@@ -137,6 +137,8 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 		addPRReadyChecks(pr, add)
 		if opts.reviewLane != "" {
 			a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, add)
+		} else if opts.write {
+			add("review lane", "fail", "--review-lane is required with --write")
 		} else {
 			add("review lane", "skip", "not requested")
 		}
@@ -164,6 +166,10 @@ func (a *App) readyPullRequest(ctx context.Context, cfg config.Config, item task
 		pr, err := client.PRView(ctx, repoPath, repoArg, prNumber)
 		if err != nil {
 			add("pr", "fail", err.Error())
+			return ghx.PullRequest{}, false
+		}
+		if item.Branch != "" && pr.HeadRefName != "" && pr.HeadRefName != item.Branch {
+			add("pr", "fail", fmt.Sprintf("PR head branch %q, want %q", pr.HeadRefName, item.Branch))
 			return ghx.PullRequest{}, false
 		}
 		add("pr", "pass", pr.URL)
@@ -194,7 +200,7 @@ func addPRReadyChecks(pr ghx.PullRequest, add func(string, string, string)) {
 	} else {
 		add("merge state", "fail", mergeState)
 	}
-	if pr.ReviewDecision == "CHANGES_REQUESTED" {
+	if pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED" {
 		add("review decision", "fail", pr.ReviewDecision)
 	} else {
 		add("review decision", "pass", emptyAs(pr.ReviewDecision, "n/a"))

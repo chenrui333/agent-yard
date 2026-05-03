@@ -46,3 +46,19 @@ func TestCheckRollupPassed(t *testing.T) {
 		}
 	}
 }
+
+func TestAddPRReadyChecksFailsReviewRequired(t *testing.T) {
+	var checks []readyCheck
+	addPRReadyChecks(ghx.PullRequest{State: "OPEN", MergeStateStatus: "CLEAN", ReviewDecision: "REVIEW_REQUIRED"}, func(name, status, detail string) {
+		checks = append(checks, readyCheck{Name: name, Status: status, Detail: detail})
+	})
+	for _, check := range checks {
+		if check.Name == "review decision" {
+			if check.Status != "fail" {
+				t.Fatalf("review decision status = %q; want fail", check.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("review decision check missing")
+}

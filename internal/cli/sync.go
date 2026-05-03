@@ -37,6 +37,12 @@ func (a *App) newSyncIssueCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid issue number %q", args[0])
 			}
+			if issueNumber <= 0 {
+				return fmt.Errorf("invalid issue number %q: must be > 0", args[0])
+			}
+			if limit < 0 {
+				return fmt.Errorf("invalid --limit %d: must be >= 0", limit)
+			}
 			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
@@ -66,6 +72,12 @@ func (a *App) newSyncIssueCmd() *cobra.Command {
 }
 
 func (a *App) runSyncIssue(issueNumber int, title, url, body string, opts issuex.ImportOptions, write bool) error {
+	if issueNumber <= 0 {
+		return fmt.Errorf("invalid issue number %d: must be > 0", issueNumber)
+	}
+	if opts.Limit < 0 {
+		return fmt.Errorf("invalid --limit %d: must be >= 0", opts.Limit)
+	}
 	store := task.NewStore(a.taskPath())
 	boxes := issuex.ParseCheckboxes(body)
 	if !write {
