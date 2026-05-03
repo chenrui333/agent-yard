@@ -230,7 +230,7 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 		Limit:                       len(launchable.Tasks),
 		EligibleStatuses:            wave.Eligible(task.StatusClaimed, task.StatusWorktreeCreated),
 		PreferDistinctServiceFamily: true,
-		ReservedLanes:               a.waveReservedLanes(cmd.Context(), cfg, ledger),
+		ReservedLanes:               a.launchReservedLanes(cmd.Context(), cfg, ledger, opts),
 	})
 	launched := 0
 	var launchFailures []string
@@ -260,6 +260,13 @@ func (a *App) waveReservedLanes(ctx context.Context, cfg config.Config, ledger t
 		reserved[lane] = owner
 	}
 	return reserved
+}
+
+func (a *App) launchReservedLanes(ctx context.Context, cfg config.Config, ledger task.Ledger, opts *launchOptions) map[string]string {
+	if opts != nil && opts.force {
+		return wave.ReservedLanes(ledger)
+	}
+	return a.waveReservedLanes(ctx, cfg, ledger)
 }
 
 func (a *App) liveImplementationLanes(ctx context.Context, cfg config.Config) map[string]string {

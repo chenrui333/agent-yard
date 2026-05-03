@@ -82,6 +82,22 @@ func TestRemoteTrackingBranchExistsTreatsMissingRefAsFalse(t *testing.T) {
 	}
 }
 
+func TestIsAncestorTreatsExitOneAsFalse(t *testing.T) {
+	runner := &recordingRunner{err: &execx.CommandError{Result: execx.Result{ExitCode: 1}}}
+	client := Client{Runner: runner}
+	exists, err := client.IsAncestor(context.Background(), "/repo", "HEAD", "origin/feature")
+	if err != nil {
+		t.Fatalf("IsAncestor returned error: %v", err)
+	}
+	if exists {
+		t.Fatal("IsAncestor = true; want false")
+	}
+	want := []string{"merge-base", "--is-ancestor", "HEAD", "origin/feature"}
+	if !reflect.DeepEqual(runner.command.Args, want) {
+		t.Fatalf("args = %#v; want %#v", runner.command.Args, want)
+	}
+}
+
 type recordingRunner struct {
 	command execx.Command
 	result  execx.Result

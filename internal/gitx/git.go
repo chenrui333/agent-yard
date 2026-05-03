@@ -89,6 +89,18 @@ func (c Client) VerifyRef(ctx context.Context, dir, ref string) error {
 	return err
 }
 
+func (c Client) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
+	_, err := c.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	var cmdErr *execx.CommandError
+	if errors.As(err, &cmdErr) && cmdErr.Result.ExitCode == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
 func (c Client) StatusPorcelain(ctx context.Context, dir string) (string, error) {
 	result, err := c.run(ctx, dir, "status", "--porcelain")
 	if err != nil {

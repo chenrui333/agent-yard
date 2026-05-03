@@ -73,6 +73,7 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 	ctx := cmd.Context()
 	git := gitx.New()
 	checks := []readyCheck{}
+	localWorktree := ""
 	add := func(name, status, detail string) {
 		checks = append(checks, readyCheck{Name: name, Status: status, Detail: detail})
 	}
@@ -107,6 +108,7 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 		} else {
 			add("diff check", "pass", "ok")
 		}
+		localWorktree = abs
 	}
 
 	if item.Branch == "" {
@@ -115,6 +117,17 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 		add("remote branch", "fail", err.Error())
 	} else if !exists {
 		add("remote branch", "fail", "not pushed")
+	} else if localWorktree != "" {
+		remoteRef := cfg.DefaultRemote + "/" + item.Branch
+		if err := git.Fetch(ctx, config.RepoPath(a.configPath, cfg), cfg.DefaultRemote); err != nil {
+			add("remote branch", "fail", err.Error())
+		} else if contains, err := git.IsAncestor(ctx, localWorktree, "HEAD", remoteRef); err != nil {
+			add("remote branch", "fail", err.Error())
+		} else if !contains {
+			add("remote branch", "fail", "local HEAD is not contained in "+remoteRef)
+		} else {
+			add("remote branch", "pass", "pushed")
+		}
 	} else {
 		add("remote branch", "pass", "pushed")
 	}
@@ -210,8 +223,8 @@ func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, pr
 		add("review lane", "fail", err.Error())
 		return
 	}
-	if hasReviewTODOFindings(output) {
-		add("review lane", "fail", "P1/P2/P3 TODO findings visible in "+window)
+	if hasReviewPriorityFindings(output) {
+		add("review lane", "fail", "P1/P2/P3 findings visible in "+window)
 		return
 	}
 	add("review lane", "pass", window)
@@ -225,16 +238,16 @@ func reviewLaneWindow(prNumber int, lane string) string {
 	return agent.ReviewWindowName("pr-review", fmt.Sprintf("%d-%s", prNumber, lane))
 }
 
-var reviewTODORE = regexp.MustCompile(`(?i)\bP[123]\b.*\bTODO\b|\bTODO\b.*\bP[123]\b`)
+var reviewPriorityRE = regexp.MustCompile(`(?i)(\[[[:space:]]*P[123][[:space:]]*\]|\bP[123]\b)`)
 
-func hasReviewTODOFindings(output string) bool {
+func hasReviewPriorityFindings(output string) bool {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		lower := strings.ToLower(line)
-		if strings.Contains(lower, "no p1/p2/p3 todo") || strings.Contains(lower, "no p1/p2/p3") {
+		if strings.Contains(lower, "no p1/p2/p3") || strings.Contains(lower, "no p1, p2") || strings.Contains(lower, "no p1 p2") {
 			continue
 		}
-		if reviewTODORE.MatchString(line) {
+		if reviewPriorityRE.MatchString(line) {
 			return true
 		}
 	}

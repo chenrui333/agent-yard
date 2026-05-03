@@ -6,11 +6,11 @@ import (
 	"github.com/chenrui333/agent-yard/internal/ghx"
 )
 
-func TestHasReviewTODOFindingsIgnoresClearPassMessage(t *testing.T) {
-	if hasReviewTODOFindings("There are no P1/P2/P3 TODO comments.") {
+func TestHasReviewPriorityFindingsIgnoresClearPassMessage(t *testing.T) {
+	if hasReviewPriorityFindings("There are no P1/P2/P3 TODO comments.") {
 		t.Fatal("clear pass message should not count as TODO finding")
 	}
-	if !hasReviewTODOFindings("- [P2] TODO fix the race") {
+	if !hasReviewPriorityFindings("- [P2] fix the race") {
 		t.Fatal("P2 TODO finding was not detected")
 	}
 }
