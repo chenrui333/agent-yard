@@ -85,18 +85,34 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 }
 
 func activeLanes(ledger task.Ledger) map[string]string {
-	used := map[string]string{}
+	type reservation struct {
+		owner    string
+		priority int
+	}
+	reservations := map[string]reservation{}
 	for _, item := range ledger.Tasks {
 		lane := normalizeLane(item.AssignedAgent)
 		if lane == "" || !reservesLane(item.Status) {
 			continue
 		}
-		if _, exists := used[lane]; !exists {
-			used[lane] = item.ID
+		priority := laneReservationPriority(item.Status)
+		current, exists := reservations[lane]
+		if !exists || priority > current.priority {
+			reservations[lane] = reservation{owner: item.ID, priority: priority}
+			continue
 		}
+		if current.owner != item.ID && priority == current.priority {
+			reservations[lane] = reservation{owner: laneConflictOwner, priority: priority}
+		}
+	}
+	used := map[string]string{}
+	for lane, current := range reservations {
+		used[lane] = current.owner
 	}
 	return used
 }
+
+const laneConflictOwner = "<conflict>"
 
 func ReservedLanes(ledger task.Ledger) map[string]string {
 	used := activeLanes(ledger)
@@ -109,6 +125,19 @@ func ReservedLanes(ledger task.Ledger) map[string]string {
 
 func reservesLane(status task.Status) bool {
 	return status != task.StatusMerged && status != task.StatusBlocked
+}
+
+func laneReservationPriority(status task.Status) int {
+	switch status {
+	case task.StatusRunning, task.StatusNeedsReview, task.StatusPROpened, task.StatusReviewPending, task.StatusChangesRequested, task.StatusMergeReady:
+		return 3
+	case task.StatusClaimed, task.StatusWorktreeCreated:
+		return 2
+	case task.StatusReady:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func normalizeLane(value string) string {

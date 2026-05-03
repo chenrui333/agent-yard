@@ -219,6 +219,78 @@ agents:
 	assertContains(t, out, "distinct service_family")
 }
 
+func TestWavePrepareKeepsWorktreeStateWhenCommentFails(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	srcRoot := filepath.Join(dir, "src")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(srcRoot, "repo")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+echo comment failed >&2
+exit 1
+`)
+	configPath := filepath.Join(dir, "yard.yaml")
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+session: yard-test
+github:
+  owner: chenrui333
+  repo: agent-yard
+  issue: 338
+worktrees:
+  root: %q
+  prefix: repo.
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo, srcRoot))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: s3
+    issue: 338
+    checkbox: S3 resources
+    service_family: s3
+    branch: s3-resources
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "wave", "prepare", "--limit", "1", "--comment")
+	if err == nil {
+		t.Fatalf("expected wave prepare comment failure\noutput:\n%s", out)
+	}
+	assertContains(t, out, "prepared 1 task(s)")
+	assertContains(t, out, "failed to prepare 1 task(s): s3")
+
+	worktree := filepath.Join(srcRoot, "repo.s3-resources")
+	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
+		t.Fatalf("expected git worktree at %s: %v", worktree, err)
+	}
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: worktree_created")
+	assertContains(t, tasksData, "assigned_agent: impl-01")
+	assertContains(t, tasksData, worktree)
+}
+
 func TestReviewPRChecksWindowBeforeWorktreeMutation(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()

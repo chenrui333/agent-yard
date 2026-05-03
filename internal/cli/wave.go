@@ -121,10 +121,6 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		EligibleStatuses:            wave.Eligible(task.StatusReady),
 		PreferDistinctServiceFamily: true,
 	})
-	originals := map[string]task.Task{}
-	for _, selected := range selections {
-		originals[selected.Task.ID] = selected.Task
-	}
 	if len(selections) == 0 {
 		a.printf("selected 0 task(s)\n")
 		return nil
@@ -154,32 +150,20 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		}); err != nil {
 			return err
 		}
+		prepared++
 		if comment {
 			body := fmt.Sprintf("Claiming task %s for %s.", selected.Task.ID, selected.Lane)
 			if err := ghx.New().IssueComment(cmd.Context(), config.RepoPath(a.configPath, cfg), config.GitHubRepoArg(cfg), taskIssue(cfg, selected.Task), body); err != nil {
 				failures = append(failures, selected.Task.ID)
-				if updateErr := a.rollbackPreparedTask(store, selected.Task.ID, originals[selected.Task.ID]); updateErr != nil {
-					return updateErr
-				}
 				break
 			}
 		}
-		prepared++
 	}
 	a.printf("prepared %d task(s)\n", prepared)
 	if len(failures) > 0 {
 		return fmt.Errorf("failed to prepare %d task(s): %s", len(failures), strings.Join(failures, ", "))
 	}
 	return nil
-}
-
-func (a *App) rollbackPreparedTask(store task.Store, taskID string, original task.Task) error {
-	return store.Update(taskID, func(item *task.Task) error {
-		item.Status = original.Status
-		item.AssignedAgent = original.AssignedAgent
-		item.Worktree = original.Worktree
-		return nil
-	})
 }
 
 func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) error {

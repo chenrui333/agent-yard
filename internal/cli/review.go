@@ -111,16 +111,12 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 	}
 	tmuxClient := tmux.New()
 	ctx := cmd.Context()
-	sessionExists, err := tmuxClient.HasSession(ctx, cfg.Session)
-	if err != nil {
+	if err := tmuxClient.EnsureSession(ctx, cfg.Session); err != nil {
 		return err
 	}
-	exists := false
-	if sessionExists {
-		exists, err = tmuxClient.WindowExists(ctx, cfg.Session, window)
-		if err != nil {
-			return err
-		}
+	exists, err := tmuxClient.WindowExists(ctx, cfg.Session, window)
+	if err != nil {
+		return err
 	}
 	if exists && !opts.force {
 		return fmt.Errorf("tmux window %s already exists", window)
@@ -129,9 +125,6 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 		return err
 	}
 	if _, err := a.ensurePRReviewWorktree(ctx, cfg, prNumber, lane, resetWorktree); err != nil {
-		return err
-	}
-	if err := tmuxClient.EnsureSession(ctx, cfg.Session); err != nil {
 		return err
 	}
 	if !exists {
