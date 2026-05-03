@@ -18,6 +18,36 @@ agent-yard is a generic local orchestration tool for running multiple coding and
 - Long-running interactive agent commands belong in tmux, not streamed through the process wrapper.
 - Keep prompt defaults generic. Put campaign-specific instructions in local prompt templates when a user needs them.
 
+## Paired Workset Model
+
+The standard agent-yard unit is a paired workset:
+
+- One git worktree.
+- One focused branch and pull request.
+- One tmux terminal running the implementation agent.
+- One separate tmux terminal running the review agent.
+
+Scale by adding independent worksets, not by sharing terminals or worktrees. For example, workset 1 can use terminal 1 for implementation and terminal 2 for review, while workset 2 uses terminal 3 for implementation and terminal 4 for review. Each workset should be able to progress, block, review, and finish without interfering with the others.
+
+The dispatcher coordinates these pairs. It should not become an autonomous supervisor; it keeps the board visible, assigns lanes, launches terminals, and moves review feedback between the implementation and review terminals.
+
+## Agent Loop Running Process
+
+For each workset, run this loop until the pull request is ready:
+
+1. The implementation agent changes code only inside the assigned worktree and produces focused commits.
+2. The review agent runs in a separate terminal against the same workset boundary and does not push code.
+3. For pull-request review, the review terminal may run:
+
+   ```text
+   /review https://github.com/OWNER/REPO/pull/NUMBER
+   ```
+
+4. Treat P1/P2/P3 review findings or TODO comments as required follow-up work.
+5. Send follow-up work back to the implementation terminal or patch it directly in the assigned worktree.
+6. After meaningful commits, update the pull request title or body so reviewers can understand the current scope without reconstructing history.
+7. Repeat until the pull request build is green and the review terminal reports no P1/P2/P3 TODO comments.
+
 ## Safety
 
 - Protect `tasks.yaml` writes with the task store lock and atomic save path.

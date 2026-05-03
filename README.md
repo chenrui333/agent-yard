@@ -141,6 +141,34 @@ For larger waves, use yard wave plan to select distinct service families when po
 
 Terraformer AWS coverage is a good example campaign for this model, but project-specific implementation rules belong in local prompt templates rather than the built-in defaults.
 
+## Paired Workset Loop
+
+agent-yard is designed around independent paired worksets:
+
+    workset-1
+      terminal-1: implementation agent
+      terminal-2: review agent
+      boundary: one git worktree, one branch, one pull request
+
+    workset-2
+      terminal-3: implementation agent
+      terminal-4: review agent
+      boundary: another git worktree, branch, and pull request
+
+Each workset can bounce between implementation and review without blocking the others. The implementation terminal writes code in the assigned worktree. The review terminal is separate, read-only by convention, and checks the worktree or pull request. For Codex PR review, run the review command from the review terminal:
+
+    /review https://github.com/OWNER/REPO/pull/NUMBER
+
+The dispatcher keeps the loop moving:
+
+1. Launch the implementation terminal.
+2. Launch the paired local or PR review terminal.
+3. Watch build and review state with yard status, yard board, and GitHub checks.
+4. Treat P1/P2/P3 TODO comments as required follow-up.
+5. Route fixes back to the implementation terminal or patch the assigned worktree directly.
+6. Update the pull request title or body after meaningful commits.
+7. Repeat until the build is green and the review terminal has no P1/P2/P3 TODO comments.
+
 ## Safety Model
 
 - tmux owns long-running interactive sessions.

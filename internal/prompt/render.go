@@ -97,6 +97,7 @@ You are working on task {{.Task.ID}} from issue #{{.Issue}}.
 - Branch: {{.Task.Branch}}
 - Worktree: {{.Task.Worktree}}
 - Base branch: {{.BaseBranch}}
+- Remote: {{.Remote}}
 
 ## Guardrails
 
@@ -106,6 +107,15 @@ You are working on task {{.Task.ID}} from issue #{{.Issue}}.
 - Use signed-off commits if configured.
 - Prefer focused diffs.
 - Update docs and tests when relevant.
+- Keep pull requests scoped to this task and reference the issue with Refs #{{.Issue}}.
+
+## Paired Workset Loop
+
+- You are the implementation terminal for this workset.
+- A separate review terminal may inspect the same worktree or pull request.
+- Treat P1/P2/P3 review findings and TODO comments as required follow-up work.
+- Make focused follow-up commits in this worktree when review feedback is valid.
+- Do not take over the review terminal's role; report what changed and any PR title/body updates the dispatcher should make.
 
 ## Project-Specific Correctness
 
@@ -132,13 +142,29 @@ Review the assigned worktree for task {{.Task.ID}}.
 - Branch: {{.Task.Branch}}
 - Issue: #{{.Issue}}
 
+You are the review terminal for this workset. A separate implementation terminal owns code changes in the assigned worktree.
+
 Stay read-only. Do not commit, push, or rewrite files. Focus on correctness, test gaps, and scope control.
+
+Report findings first, ordered by severity, with file and line references where possible. Use P1/P2/P3 severity for actionable TODO comments. If there are no P1/P2/P3 TODO comments, say that clearly and call out any residual test gaps.
 `,
 	KindPRReview: `# PR Review: #{{.PRNumber}}
 
 Review pull request #{{.PRNumber}}.
+{{- if and .Config.GitHub.Owner .Config.GitHub.Repo }}
 
-Do not push code. Do not mutate branches. Focus on actionable correctness findings, review risk, and missing validation.
+Codex review command for this review terminal:
+
+/review https://github.com/{{.Config.GitHub.Owner}}/{{.Config.GitHub.Repo}}/pull/{{.PRNumber}}
+{{- end }}
+
+Do not push code. Do not mutate branches. Do not rewrite commits.
+
+You are the review terminal for this workset. A separate implementation terminal owns code changes for the pull request.
+
+Focus on actionable correctness findings, review risk, missing validation, scope creep, build state, and whether the PR is merge-ready.
+
+Report P1/P2/P3 TODO comments when follow-up is required. If the build is green and there are no P1/P2/P3 TODO comments, say that clearly so the dispatcher can stop the loop.
 `,
 }
 

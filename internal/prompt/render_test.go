@@ -27,6 +27,9 @@ func TestRenderEmbeddedDefault(t *testing.T) {
 	if !strings.Contains(rendered, "aws-route53") || !strings.Contains(rendered, "Route53 resources") {
 		t.Fatalf("rendered prompt missing task fields:\n%s", rendered)
 	}
+	if !strings.Contains(rendered, "implementation terminal for this workset") {
+		t.Fatalf("rendered prompt missing paired workset guidance:\n%s", rendered)
+	}
 }
 
 func TestRenderTemplateFile(t *testing.T) {
@@ -40,5 +43,27 @@ func TestRenderTemplateFile(t *testing.T) {
 	}
 	if rendered != "task=one" {
 		t.Fatalf("rendered = %q; want task=one", rendered)
+	}
+}
+
+func TestRenderPRReviewIncludesReviewLoop(t *testing.T) {
+	cfg := config.Default()
+	cfg.GitHub.Owner = "owner"
+	cfg.GitHub.Repo = "repo"
+	rendered, err := (Renderer{}).Render(KindPRReview, Data{
+		Config:   cfg,
+		PRNumber: 123,
+	})
+	if err != nil {
+		t.Fatalf("Render returned error: %v", err)
+	}
+	for _, want := range []string{
+		"/review https://github.com/owner/repo/pull/123",
+		"review terminal for this workset",
+		"no P1/P2/P3 TODO comments",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered prompt missing %q:\n%s", want, rendered)
+		}
 	}
 }
