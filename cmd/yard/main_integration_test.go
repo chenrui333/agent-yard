@@ -148,6 +148,50 @@ agents:
 	}
 }
 
+func TestDoctorScopesGitHubAuthToConfiguredHost(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then exit 1; fi\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ] && [ "$3" = "--hostname" ] && [ "$4" = "ghe.example.com" ]; then
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+github:
+  host: ghe.example.com
+  owner: chenrui333
+  repo: agent-yard
+worktrees:
+  root: .
+  prefix: yard.
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "doctor")
+	if err != nil {
+		t.Fatalf("doctor should check configured GitHub host: %v; output: %s", err, out)
+	}
+	assertContains(t, out, "gh auth")
+	assertContains(t, out, "authenticated GitHub CLI for ghe.example.com")
+}
+
 func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()

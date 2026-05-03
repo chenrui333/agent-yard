@@ -89,6 +89,7 @@ Inspect or attach to tmux-backed lanes:
     session: tf-aws
 
     github:
+      host: github.com
       owner: chenrui333
       repo: terraformer
       issue: 338

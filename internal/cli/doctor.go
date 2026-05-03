@@ -85,11 +85,11 @@ func (a *App) runDoctor(ctx context.Context) error {
 	}
 
 	if execx.Exists("gh") {
-		_, err := execx.Runner{}.Run(ctx, execx.Command{Name: "gh", Args: []string{"auth", "status"}})
+		_, err := execx.Runner{}.Run(ctx, execx.Command{Name: "gh", Args: []string{"auth", "status", "--hostname", githubHost(cfg)}})
 		if err != nil && !githubEnabled {
 			warn("gh auth", "not authenticated; required for GitHub commands")
 		} else {
-			add("gh auth", err, "authenticated GitHub CLI")
+			add("gh auth", err, "authenticated GitHub CLI for "+githubHost(cfg))
 		}
 	}
 	if execx.Exists("git") && dirExists(repo) == nil {
@@ -117,7 +117,14 @@ func (a *App) runDoctor(ctx context.Context) error {
 }
 
 func githubConfigured(cfg config.Config) bool {
-	return cfg.GitHub.Owner != "" || cfg.GitHub.Repo != "" || cfg.GitHub.Issue != 0
+	return cfg.GitHub.Host != "" || cfg.GitHub.Owner != "" || cfg.GitHub.Repo != "" || cfg.GitHub.Issue != 0
+}
+
+func githubHost(cfg config.Config) string {
+	if cfg.GitHub.Host != "" {
+		return cfg.GitHub.Host
+	}
+	return "github.com"
 }
 
 func (a *App) renderDoctorRows(rows []doctorRow) error {

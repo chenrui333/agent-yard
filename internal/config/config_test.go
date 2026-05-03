@@ -48,3 +48,10 @@ func TestResolvePath(t *testing.T) {
 		t.Fatalf("ResolvePath = %q; want %q", got, want)
 	}
 }
+
+func TestGitHubRepoArgIncludesConfiguredEnterpriseHost(t *testing.T) {
+	cfg := Config{GitHub: GitHubConfig{Host: "ghe.example.com", Owner: "owner", Repo: "repo"}}
+	if got := GitHubRepoArg(cfg); got != "ghe.example.com/owner/repo" {
+		t.Fatalf("GitHubRepoArg = %q; want enterprise host repo arg", got)
+	}
+}
