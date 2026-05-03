@@ -56,7 +56,7 @@ func (a *App) runPR(cmd *cobra.Command, taskID string, opts *prOptions) error {
 	body := prBody(cfg, *item)
 	git := gitx.New()
 	if opts.dryRun {
-		if _, err := a.prPreflight(cmd.Context(), cfg, *item, opts.allowBehind, false); err != nil {
+		if _, err := a.prPreflight(cmd.Context(), cfg, *item, opts.allowBehind, true); err != nil {
 			a.printf("preflight: would fail: %v\n", err)
 		} else {
 			a.printf("preflight: ok\n")
