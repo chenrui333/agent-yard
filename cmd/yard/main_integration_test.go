@@ -140,6 +140,45 @@ func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
 	assertNotContains(t, tasksData, "assigned_agent:")
 }
 
+func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "yard.yaml")
+	launchableWorktree := filepath.Join(dir, "launchable-worktree")
+
+	runYard(t, bin, dir, "--config", configPath, "init")
+	if err := os.MkdirAll(launchableWorktree, 0o755); err != nil {
+		t.Fatalf("create launchable worktree: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: claimed-missing
+    issue: 338
+    checkbox: Missing worktree
+    service_family: ec2
+    branch: missing-worktree
+    worktree: %q
+    status: claimed
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
+  - id: ready-launch
+    issue: 338
+    checkbox: Ready launch
+    service_family: s3
+    branch: ready-launch
+    worktree: %q
+    status: worktree_created
+    assigned_agent: impl-02
+    pr_url: ""
+    pr_number: 0
+`, filepath.Join(dir, "missing-worktree"), launchableWorktree))
+
+	out := runYard(t, bin, dir, "--config", configPath, "wave", "launch", "--limit", "1", "--dry-run", "--force")
+	assertContains(t, out, "window: impl-02")
+	assertContains(t, out, "selected 1 task(s)")
+	assertNotContains(t, out, "claimed-missing")
+}
+
 func TestReviewPRDryRunWithRelativeConfigUsesAbsolutePaths(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
@@ -228,6 +267,11 @@ agents:
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: worktree_created")
 	assertContains(t, tasksData, worktree)
+
+	runGit(t, repo, "remote", "set-url", "origin", filepath.Join(dir, "missing-origin.git"))
+	rerunOut := runYard(t, bin, dir, "--config", configPath, "worktree", "route53")
+	assertContains(t, rerunOut, "worktree already exists: "+worktree)
+	runGit(t, repo, "remote", "set-url", "origin", origin)
 
 	statusOut := runYard(t, bin, dir, "--config", configPath, "status")
 	assertContains(t, statusOut, "worktree_created")

@@ -1,15 +1,20 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/chenrui333/agent-yard/internal/agent"
 	"github.com/chenrui333/agent-yard/internal/config"
 	"github.com/chenrui333/agent-yard/internal/ghx"
+	"github.com/chenrui333/agent-yard/internal/gitx"
 	"github.com/chenrui333/agent-yard/internal/prompt"
 	"github.com/chenrui333/agent-yard/internal/task"
+	"github.com/chenrui333/agent-yard/internal/tmux"
 	"github.com/chenrui333/agent-yard/internal/wave"
 	"github.com/spf13/cobra"
 )
@@ -93,15 +98,16 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 	if limit < 1 {
 		return fmt.Errorf("--limit must be greater than zero")
 	}
-	cfg, _, store, err := a.loadState()
+	cfg, ledger, store, err := a.loadState()
 	if err != nil {
 		return err
 	}
-	if dryRun {
-		ledger, err := store.Load()
-		if err != nil {
+	if comment {
+		if err := ghx.EnsureExists(); err != nil {
 			return err
 		}
+	}
+	if dryRun {
 		selections := wave.SelectTasks(ledger, wave.Options{
 			Limit:                       limit,
 			EligibleStatuses:            wave.Eligible(task.StatusReady),
@@ -110,41 +116,20 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		return a.renderWaveSelections(selections)
 	}
 
-	var selections []wave.Selection
+	selections := wave.SelectTasks(ledger, wave.Options{
+		Limit:                       limit,
+		EligibleStatuses:            wave.Eligible(task.StatusReady),
+		PreferDistinctServiceFamily: true,
+	})
 	originals := map[string]task.Task{}
-	if err := store.WithLock(func(ledger *task.Ledger) error {
-		selections = wave.SelectTasks(*ledger, wave.Options{
-			Limit:                       limit,
-			EligibleStatuses:            wave.Eligible(task.StatusReady),
-			PreferDistinctServiceFamily: true,
-		})
-		for i := range selections {
-			taskID := selections[i].Task.ID
-			lane := selections[i].Lane
-			originals[taskID] = selections[i].Task
-			if err := ledger.Update(taskID, func(item *task.Task) error {
-				item.Status = task.StatusClaimed
-				item.AssignedAgent = lane
-				selections[i].Task = *item
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
+	for _, selected := range selections {
+		originals[selected.Task.ID] = selected.Task
 	}
 	if len(selections) == 0 {
 		a.printf("selected 0 task(s)\n")
 		return nil
 	}
 
-	if comment {
-		if err := ghx.EnsureExists(); err != nil {
-			return err
-		}
-	}
 	prepared := 0
 	var failures []string
 	fetched := false
@@ -153,21 +138,17 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		if err != nil {
 			a.printf("skip %s: %v\n", selected.Task.ID, err)
 			failures = append(failures, selected.Task.ID)
-			original := originals[selected.Task.ID]
-			if updateErr := store.Update(selected.Task.ID, func(item *task.Task) error {
-				item.Status = original.Status
-				item.AssignedAgent = original.AssignedAgent
-				item.Worktree = original.Worktree
-				return nil
-			}); updateErr != nil {
-				return updateErr
-			}
 			continue
 		}
 		fetched = true
 		if err := store.Update(selected.Task.ID, func(item *task.Task) error {
+			if item.Status != task.StatusReady {
+				return fmt.Errorf("task %q status changed to %s", item.ID, item.Status)
+			}
+			item.AssignedAgent = selected.Lane
 			item.Worktree = worktreePath
 			item.Status = task.StatusWorktreeCreated
+			selected.Task = *item
 			return nil
 		}); err != nil {
 			return err
@@ -175,7 +156,11 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		if comment {
 			body := fmt.Sprintf("Claiming task %s for %s.", selected.Task.ID, selected.Lane)
 			if err := ghx.New().IssueComment(cmd.Context(), config.RepoPath(a.configPath, cfg), config.GitHubRepoArg(cfg), taskIssue(cfg, selected.Task), body); err != nil {
-				return err
+				failures = append(failures, selected.Task.ID)
+				if updateErr := a.rollbackPreparedTask(store, selected.Task.ID, originals[selected.Task.ID]); updateErr != nil {
+					return updateErr
+				}
+				break
 			}
 		}
 		prepared++
@@ -187,6 +172,15 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 	return nil
 }
 
+func (a *App) rollbackPreparedTask(store task.Store, taskID string, original task.Task) error {
+	return store.Update(taskID, func(item *task.Task) error {
+		item.Status = original.Status
+		item.AssignedAgent = original.AssignedAgent
+		item.Worktree = original.Worktree
+		return nil
+	})
+}
+
 func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) error {
 	if limit < 1 {
 		return fmt.Errorf("--limit must be greater than zero")
@@ -195,7 +189,11 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 	if err != nil {
 		return err
 	}
-	selections := wave.SelectTasks(ledger, wave.Options{
+	launchable, err := a.launchableWaveLedger(cmd.Context(), cfg, ledger, opts)
+	if err != nil {
+		return err
+	}
+	selections := wave.SelectTasks(launchable, wave.Options{
 		Limit:                       limit,
 		EligibleStatuses:            wave.Eligible(task.StatusClaimed, task.StatusWorktreeCreated),
 		PreferDistinctServiceFamily: true,
@@ -203,9 +201,7 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 	launched := 0
 	for _, selected := range selections {
 		item := selected.Task
-		if item.AssignedAgent == "" {
-			item.AssignedAgent = selected.Lane
-		}
+		item.AssignedAgent = selected.Lane
 		if err := a.launchTask(cmd, cfg, store, item, prompt.KindImplement, agent.TaskWindowName(item), cfg.Agents.Implementation, task.StatusRunning, opts); err != nil {
 			a.printf("skip %s: %v\n", item.ID, err)
 			continue
@@ -214,6 +210,47 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 	}
 	a.printf("selected %d task(s)\n", launched)
 	return nil
+}
+
+func (a *App) launchableWaveLedger(ctx context.Context, cfg config.Config, ledger task.Ledger, opts *launchOptions) (task.Ledger, error) {
+	launchable := task.EmptyLedger()
+	git := gitx.New()
+	tmuxClient := tmux.New()
+	checkTmux := !opts.force && !opts.dryRun
+	for _, item := range ledger.Tasks {
+		if item.Status != task.StatusClaimed && item.Status != task.StatusWorktreeCreated {
+			continue
+		}
+		worktreePath := a.taskWorktreePath(cfg, item)
+		if worktreePath == "" {
+			continue
+		}
+		worktreePath, err := filepath.Abs(worktreePath)
+		if err != nil {
+			return task.Ledger{}, err
+		}
+		stat, err := os.Stat(worktreePath)
+		if err != nil || !stat.IsDir() {
+			continue
+		}
+		if !opts.force {
+			dirty, err := git.IsDirty(ctx, worktreePath)
+			if err != nil || dirty {
+				continue
+			}
+		}
+		if checkTmux {
+			exists, err := tmuxClient.WindowExists(ctx, cfg.Session, agent.TaskWindowName(item))
+			if err != nil {
+				return task.Ledger{}, err
+			}
+			if exists {
+				continue
+			}
+		}
+		launchable.Tasks = append(launchable.Tasks, item)
+	}
+	return launchable, nil
 }
 
 func (a *App) renderWaveSelections(selections []wave.Selection) error {

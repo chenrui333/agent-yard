@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chenrui333/agent-yard/internal/agent"
 	"github.com/chenrui333/agent-yard/internal/task"
 )
 
@@ -38,7 +39,7 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 			return false
 		}
 		var warnings []string
-		lane := strings.TrimSpace(item.AssignedAgent)
+		lane := normalizeLane(item.AssignedAgent)
 		if lane == "" {
 			lane = nextLane(len(selected)+1, usedLanes)
 		} else if owner, used := usedLanes[lane]; used && owner != item.ID {
@@ -78,7 +79,7 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 func activeLanes(ledger task.Ledger) map[string]string {
 	used := map[string]string{}
 	for _, item := range ledger.Tasks {
-		lane := strings.TrimSpace(item.AssignedAgent)
+		lane := normalizeLane(item.AssignedAgent)
 		if lane == "" || !reservesLane(item.Status) {
 			continue
 		}
@@ -91,6 +92,13 @@ func activeLanes(ledger task.Ledger) map[string]string {
 
 func reservesLane(status task.Status) bool {
 	return status != task.StatusMerged && status != task.StatusBlocked
+}
+
+func normalizeLane(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return agent.SanitizeWindowName(value)
 }
 
 func nextLane(start int, used map[string]string) string {

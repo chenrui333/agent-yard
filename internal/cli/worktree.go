@@ -57,11 +57,6 @@ func (a *App) ensureTaskWorktree(ctx context.Context, cfg config.Config, item ta
 		return "", false, err
 	}
 	git := gitx.New()
-	if fetch {
-		if err := git.Fetch(ctx, repo, cfg.DefaultRemote); err != nil {
-			return "", false, err
-		}
-	}
 	worktreePath := a.taskWorktreePath(cfg, item)
 	if worktreePath == "" {
 		return "", false, fmt.Errorf("task %q has no worktree and branch could not derive one", item.ID)
@@ -85,6 +80,11 @@ func (a *App) ensureTaskWorktree(ctx context.Context, cfg config.Config, item ta
 		return worktreePath, false, nil
 	} else if !os.IsNotExist(err) {
 		return "", false, fmt.Errorf("stat worktree path %s: %w", worktreePath, err)
+	}
+	if fetch {
+		if err := git.Fetch(ctx, repo, cfg.DefaultRemote); err != nil {
+			return "", false, err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		return "", false, fmt.Errorf("create worktree parent: %w", err)
