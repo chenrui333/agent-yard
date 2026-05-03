@@ -58,7 +58,9 @@ func TestRenderPRReviewIncludesReviewLoop(t *testing.T) {
 		t.Fatalf("Render returned error: %v", err)
 	}
 	for _, want := range []string{
+		"```text",
 		"/review https://github.com/owner/repo/pull/123",
+		"```",
 		"review terminal for this workset",
 		"no P1/P2/P3 TODO comments",
 	} {

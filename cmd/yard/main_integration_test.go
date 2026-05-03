@@ -115,6 +115,7 @@ func TestDoctorWarnsWhenGitHubCLIAbsentWithoutGitHubConfig(t *testing.T) {
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
 	configPath := filepath.Join(dir, "yard.yaml")
+	missingRoot := filepath.Join(dir, "missing", "worktrees")
 
 	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
 	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then exit 1; fi\nexit 0\n")
@@ -123,6 +124,9 @@ func TestDoctorWarnsWhenGitHubCLIAbsentWithoutGitHubConfig(t *testing.T) {
 base_branch: main
 default_remote: origin
 session: yard-test
+worktrees:
+  root: missing/worktrees
+  prefix: yard.
 agents:
   implementation:
     command: codex
@@ -139,6 +143,9 @@ agents:
 	assertContains(t, out, "gh")
 	assertContains(t, out, "warn")
 	assertContains(t, out, "GitHub CLI missing; required for GitHub commands")
+	if _, err := os.Stat(missingRoot); !os.IsNotExist(err) {
+		t.Fatalf("doctor should not create missing worktree root, stat error: %v", err)
+	}
 }
 
 func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {

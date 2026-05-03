@@ -153,9 +153,41 @@ func dirExists(path string) error {
 }
 
 func writableDir(path string) error {
-	if err := dirExists(path); err != nil {
+	stat, err := os.Stat(path)
+	if err == nil {
+		if !stat.IsDir() {
+			return fmt.Errorf("%s is not a directory", path)
+		}
+		return writableExistingDir(path)
+	}
+	if !os.IsNotExist(err) {
 		return err
 	}
+	return writableParentDir(path)
+}
+
+func writableParentDir(path string) error {
+	parent := filepath.Dir(filepath.Clean(path))
+	for {
+		stat, err := os.Stat(parent)
+		if err == nil {
+			if !stat.IsDir() {
+				return fmt.Errorf("%s is not a directory", parent)
+			}
+			return writableExistingDir(parent)
+		}
+		if !os.IsNotExist(err) {
+			return err
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return err
+		}
+		parent = next
+	}
+}
+
+func writableExistingDir(path string) error {
 	tmp, err := os.CreateTemp(path, ".yard-doctor-*")
 	if err != nil {
 		return err

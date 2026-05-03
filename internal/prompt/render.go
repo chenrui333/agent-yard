@@ -155,8 +155,7 @@ Review pull request #{{.PRNumber}}.
 
 Codex review command for this review terminal:
 
-/review https://github.com/{{.Config.GitHub.Owner}}/{{.Config.GitHub.Repo}}/pull/{{.PRNumber}}
-{{- end }}
+` + "```text\n/review https://github.com/{{.Config.GitHub.Owner}}/{{.Config.GitHub.Repo}}/pull/{{.PRNumber}}\n```\n" + `{{- end }}
 
 Do not push code. Do not mutate branches. Do not rewrite commits.
 
