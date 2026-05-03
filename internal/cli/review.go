@@ -161,6 +161,17 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 		if !stat.IsDir() {
 			return "", fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
 		}
+		topLevel, err := git.TopLevel(ctx, reviewWorktree)
+		if err != nil {
+			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
+		}
+		topLevel, err = filepath.Abs(topLevel)
+		if err != nil {
+			return "", err
+		}
+		if filepath.Clean(topLevel) != filepath.Clean(reviewWorktree) {
+			return "", fmt.Errorf("review worktree %s is not an isolated git worktree root; git top-level is %s", reviewWorktree, topLevel)
+		}
 		dirty, err := git.IsDirty(ctx, reviewWorktree)
 		if err != nil {
 			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)

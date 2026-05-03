@@ -398,6 +398,34 @@ agents:
 	}
 }
 
+func TestReviewPRRejectsPlainDirectoryInsideParentRepo(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	marker := filepath.Join(dir, "gh-called")
+	reviewDir := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
+
+	runGit(t, dir, "init", dir)
+	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
+		t.Fatalf("create plain review dir: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"list-windows\" ]; then\n  exit 0\nfi\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "gh"), fmt.Sprintf("#!/bin/sh\necho called >> %q\nexit 0\n", marker))
+	writeFile(t, configPath, "repo: \".\"\nbase_branch: main\ndefault_remote: origin\nsession: yard-test\nagents:\n  implementation:\n    command: codex\n  local_review:\n    command: codex\n  pr_review:\n    command: codex\n")
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-pr", "123", "--reset-worktree")
+	if err == nil {
+		t.Fatalf("expected plain review directory rejection; output: %s", out)
+	}
+	assertContains(t, out, "is not an isolated git worktree root")
+	assertContains(t, out, reviewDir)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("gh should not be called for non-worktree review dir, stat error: %v", err)
+	}
+}
+
 func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
