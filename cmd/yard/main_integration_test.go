@@ -445,6 +445,123 @@ func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
 	assertNotContains(t, out, "claimed-missing")
 }
 
+func TestWaveLaunchChecksTmuxWindowAfterLaneReassignment(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+	tmuxLog := filepath.Join(dir, "tmux.log")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "tmux"), fmt.Sprintf(`#!/bin/sh
+echo "$@" >> %q
+if [ "$1" = "has-session" ]; then
+  exit 0
+fi
+if [ "$1" = "list-windows" ]; then
+  echo impl-01
+  exit 0
+fi
+exit 0
+`, tmuxLog))
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: running
+    issue: 338
+    checkbox: Running task
+    service_family: route53
+    branch: running
+    worktree: ""
+    status: running
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
+  - id: launchable
+    issue: 338
+    checkbox: Launchable task
+    service_family: s3
+    branch: launchable
+    worktree: %q
+    status: worktree_created
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
+`, worktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "wave", "launch", "--limit", "1")
+	if err != nil {
+		t.Fatalf("wave launch should reassign away from occupied stale lane: %v\noutput:\n%s", err, out)
+	}
+	assertContains(t, out, "selected 1 task(s)")
+
+	tmuxData := readFile(t, tmuxLog)
+	assertContains(t, tmuxData, "new-window -t yard-test -n impl-02")
+	assertContains(t, tmuxData, "send-keys -t yard-test:impl-02")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "id: launchable")
+	assertContains(t, tasksData, "assigned_agent: impl-02")
+	assertContains(t, tasksData, "status: running")
+}
+
+func TestWaveLaunchSurfacesWorktreeDirtyProbeFailure(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\necho git failed >&2\nexit 2\n")
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: broken
+    issue: 338
+    checkbox: Broken worktree
+    service_family: s3
+    branch: broken
+    worktree: %q
+    status: worktree_created
+    pr_url: ""
+    pr_number: 0
+`, worktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "wave", "launch", "--limit", "1")
+	if err == nil {
+		t.Fatalf("expected dirty probe failure\noutput:\n%s", out)
+	}
+	assertContains(t, out, "check worktree dirty state")
+	assertContains(t, out, worktree)
+}
+
 func TestWavePrepareFetchesBeforeLaterNewWorktree(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()

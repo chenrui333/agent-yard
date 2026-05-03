@@ -14,7 +14,6 @@ import (
 	"github.com/chenrui333/agent-yard/internal/gitx"
 	"github.com/chenrui333/agent-yard/internal/prompt"
 	"github.com/chenrui333/agent-yard/internal/task"
-	"github.com/chenrui333/agent-yard/internal/tmux"
 	"github.com/chenrui333/agent-yard/internal/wave"
 	"github.com/spf13/cobra"
 )
@@ -246,8 +245,6 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 func (a *App) launchableWaveLedger(ctx context.Context, cfg config.Config, ledger task.Ledger, opts *launchOptions) (task.Ledger, error) {
 	launchable := task.EmptyLedger()
 	git := gitx.New()
-	tmuxClient := tmux.New()
-	checkTmux := !opts.force && !opts.dryRun
 	for _, item := range ledger.Tasks {
 		if item.Status != task.StatusClaimed && item.Status != task.StatusWorktreeCreated {
 			continue
@@ -261,21 +258,21 @@ func (a *App) launchableWaveLedger(ctx context.Context, cfg config.Config, ledge
 			return task.Ledger{}, err
 		}
 		stat, err := os.Stat(worktreePath)
-		if err != nil || !stat.IsDir() {
-			continue
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return task.Ledger{}, fmt.Errorf("stat worktree path %s: %w", worktreePath, err)
+		}
+		if !stat.IsDir() {
+			return task.Ledger{}, fmt.Errorf("worktree path %s is not a directory", worktreePath)
 		}
 		if !opts.force {
 			dirty, err := git.IsDirty(ctx, worktreePath)
-			if err != nil || dirty {
-				continue
-			}
-		}
-		if checkTmux {
-			exists, err := tmuxClient.WindowExists(ctx, cfg.Session, agent.TaskWindowName(item))
 			if err != nil {
-				return task.Ledger{}, err
+				return task.Ledger{}, fmt.Errorf("check worktree dirty state %s: %w", worktreePath, err)
 			}
-			if exists {
+			if dirty {
 				continue
 			}
 		}
