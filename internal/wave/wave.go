@@ -39,9 +39,7 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 		if lane == "" {
 			continue
 		}
-		if _, exists := usedLanes[lane]; !exists {
-			usedLanes[lane] = owner
-		}
+		usedLanes[lane] = owner
 	}
 
 	add := func(item task.Task, reason string) bool {

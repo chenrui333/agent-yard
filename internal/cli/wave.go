@@ -102,11 +102,6 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 	if err != nil {
 		return err
 	}
-	if comment {
-		if err := ghx.EnsureExists(); err != nil {
-			return err
-		}
-	}
 	if dryRun {
 		selections := wave.SelectTasks(ledger, wave.Options{
 			Limit:                       limit,
@@ -114,6 +109,11 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 			PreferDistinctServiceFamily: true,
 		})
 		return a.renderWaveSelections(selections)
+	}
+	if comment {
+		if err := ghx.EnsureExists(); err != nil {
+			return err
+		}
 	}
 
 	selections := wave.SelectTasks(ledger, wave.Options{

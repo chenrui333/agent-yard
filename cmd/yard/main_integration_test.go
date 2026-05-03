@@ -171,6 +171,47 @@ func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
 	assertNotContains(t, tasksData, "assigned_agent:")
 }
 
+func TestWavePrepareDryRunCommentSkipsGitHubPreflight(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: ready
+    issue: 338
+    checkbox: Ready task
+    service_family: s3
+    branch: ready-task
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "wave", "prepare", "--dry-run", "--comment", "--limit", "1")
+	if err != nil {
+		t.Fatalf("wave prepare dry-run should not require gh: %v; output: %s", err, out)
+	}
+	assertContains(t, out, "ready")
+	assertContains(t, out, "distinct service_family")
+}
+
 func TestReviewPRChecksWindowBeforeWorktreeMutation(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
