@@ -151,6 +151,16 @@ func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
 		t.Fatalf("create launchable worktree: %v", err)
 	}
 	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: running
+    issue: 338
+    checkbox: Running task
+    service_family: route53
+    branch: running
+    worktree: ""
+    status: running
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
   - id: claimed-missing
     issue: 338
     checkbox: Missing worktree
@@ -158,7 +168,6 @@ func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
     branch: missing-worktree
     worktree: %q
     status: claimed
-    assigned_agent: impl-01
     pr_url: ""
     pr_number: 0
   - id: ready-launch
@@ -168,7 +177,6 @@ func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
     branch: ready-launch
     worktree: %q
     status: worktree_created
-    assigned_agent: impl-02
     pr_url: ""
     pr_number: 0
 `, filepath.Join(dir, "missing-worktree"), launchableWorktree))
@@ -177,6 +185,85 @@ func TestWaveLaunchSkipsUnlaunchableTasksBeforeLimit(t *testing.T) {
 	assertContains(t, out, "window: impl-02")
 	assertContains(t, out, "selected 1 task(s)")
 	assertNotContains(t, out, "claimed-missing")
+}
+
+func TestWavePrepareFetchesBeforeLaterNewWorktree(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	srcRoot := filepath.Join(dir, "src")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(srcRoot, "repo")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+
+	configPath := filepath.Join(dir, "yard.yaml")
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+session: yard-test
+worktrees:
+  root: %q
+  prefix: repo.
+agents:
+  implementation:
+    command: codex
+    args:
+      - exec
+  local_review:
+    command: codex
+    args:
+      - review
+  pr_review:
+    command: codex
+    args:
+      - review
+`, repo, srcRoot))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: existing
+    issue: 338
+    checkbox: Existing worktree
+    service_family: route53
+    branch: existing-worktree
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
+  - id: later
+    issue: 338
+    checkbox: Later worktree
+    service_family: s3
+    branch: later-worktree
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
+`)
+
+	runYard(t, bin, dir, "--config", configPath, "worktree", "existing")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	tasksData = strings.Replace(tasksData, "status: worktree_created", "status: ready", 1)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), tasksData)
+
+	runGit(t, repo, "remote", "set-url", "origin", filepath.Join(dir, "missing-origin.git"))
+	out, err := runYardErr(bin, dir, "--config", configPath, "wave", "prepare", "--limit", "2")
+	if err == nil {
+		t.Fatalf("expected wave prepare to fail when later worktree fetch fails: %s", out)
+	}
+	assertContains(t, out, "worktree already exists:")
+	assertContains(t, out, "skip later")
+	assertContains(t, out, "prepared 1 task(s)")
+	if _, err := os.Stat(filepath.Join(srcRoot, "repo.later-worktree")); !os.IsNotExist(err) {
+		t.Fatalf("later worktree should not have been created, stat error: %v", err)
+	}
 }
 
 func TestReviewPRDryRunWithRelativeConfigUsesAbsolutePaths(t *testing.T) {

@@ -134,13 +134,15 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 	var failures []string
 	fetched := false
 	for _, selected := range selections {
-		worktreePath, _, err := a.ensureTaskWorktree(cmd.Context(), cfg, selected.Task, !fetched)
+		worktreePath, created, err := a.ensureTaskWorktree(cmd.Context(), cfg, selected.Task, !fetched)
 		if err != nil {
 			a.printf("skip %s: %v\n", selected.Task.ID, err)
 			failures = append(failures, selected.Task.ID)
 			continue
 		}
-		fetched = true
+		if created {
+			fetched = true
+		}
 		if err := store.Update(selected.Task.ID, func(item *task.Task) error {
 			if item.Status != task.StatusReady {
 				return fmt.Errorf("task %q status changed to %s", item.ID, item.Status)
@@ -196,6 +198,7 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 		Limit:                       limit,
 		EligibleStatuses:            wave.Eligible(task.StatusClaimed, task.StatusWorktreeCreated),
 		PreferDistinctServiceFamily: true,
+		ReservedLanes:               wave.ReservedLanes(ledger),
 	})
 	launched := 0
 	for _, selected := range selections {

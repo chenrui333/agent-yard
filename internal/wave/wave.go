@@ -12,6 +12,7 @@ type Options struct {
 	Limit                       int
 	EligibleStatuses            map[task.Status]bool
 	PreferDistinctServiceFamily bool
+	ReservedLanes               map[string]string
 }
 
 type Selection struct {
@@ -33,6 +34,15 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 	selectedIDs := map[string]bool{}
 	usedFamilies := map[string]bool{}
 	usedLanes := activeLanes(ledger)
+	for lane, owner := range opts.ReservedLanes {
+		lane = normalizeLane(lane)
+		if lane == "" {
+			continue
+		}
+		if _, exists := usedLanes[lane]; !exists {
+			usedLanes[lane] = owner
+		}
+	}
 
 	add := func(item task.Task, reason string) bool {
 		if len(selected) >= opts.Limit || selectedIDs[item.ID] || !eligible[item.Status] {
@@ -88,6 +98,15 @@ func activeLanes(ledger task.Ledger) map[string]string {
 		}
 	}
 	return used
+}
+
+func ReservedLanes(ledger task.Ledger) map[string]string {
+	used := activeLanes(ledger)
+	reserved := make(map[string]string, len(used))
+	for lane, owner := range used {
+		reserved[lane] = owner
+	}
+	return reserved
 }
 
 func reservesLane(status task.Status) bool {

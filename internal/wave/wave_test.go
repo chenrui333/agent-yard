@@ -131,3 +131,21 @@ func TestSelectTasksNormalizesAssignedLaneConflicts(t *testing.T) {
 		t.Fatalf("lane = %q; want impl-02", got[0].Lane)
 	}
 }
+
+func TestSelectTasksUsesExternalReservedLanes(t *testing.T) {
+	ledger := task.Ledger{Tasks: []task.Task{
+		{ID: "ready", ServiceFamily: "s3", Status: task.StatusWorktreeCreated},
+	}}
+	got := SelectTasks(ledger, Options{
+		Limit:                       1,
+		EligibleStatuses:            Eligible(task.StatusWorktreeCreated),
+		PreferDistinctServiceFamily: true,
+		ReservedLanes:               map[string]string{"impl-01": "running"},
+	})
+	if len(got) != 1 {
+		t.Fatalf("len = %d; want 1", len(got))
+	}
+	if got[0].Lane != "impl-02" {
+		t.Fatalf("lane = %q; want impl-02", got[0].Lane)
+	}
+}
