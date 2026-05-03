@@ -148,7 +148,6 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 			item.AssignedAgent = selected.Lane
 			item.Worktree = worktreePath
 			item.Status = task.StatusWorktreeCreated
-			selected.Task = *item
 			return nil
 		}); err != nil {
 			return err
