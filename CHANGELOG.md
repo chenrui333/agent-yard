@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.0.2 - 2026-05-03
+
+### Added
+
+- GitHub issue checkbox import through `yard sync issue --write` with section, limit, ID prefix, and branch prefix controls.
+- Hardened `yard pr` flow with local preflights, default branch push, existing PR detection, and `--no-push` / `--allow-behind` options.
+- `yard ready` merge-readiness gate for local worktree state, pushed branch state, PR merge/review/check status, and paired review-lane TODO findings.
+- Live tmux `impl-*` lane reservations during wave planning, preparation, and launch.
+- `yard gc --prune --merged` cleanup for merged task run state and clean merged PR review worktrees.
+
+### Changed
+
+- `yard launch-wave` now acts as a compatibility alias for the safer `yard wave launch` path.
+- Documentation now describes the production paired-workset loop and 0.0.2 release workflow.
+
 ## v0.0.1 - 2026-05-03
 
 ### Added

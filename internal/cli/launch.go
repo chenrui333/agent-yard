@@ -41,7 +41,7 @@ func (a *App) newLaunchWaveCmd() *cobra.Command {
 	limit := 10
 	cmd := &cobra.Command{
 		Use:   "launch-wave",
-		Short: "Launch a wave of ready tasks",
+		Short: "Compatibility alias for wave launch",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runLaunchWave(cmd, opts, limit)
 		},
@@ -65,29 +65,8 @@ func (a *App) runLaunch(cmd *cobra.Command, taskID string, opts *launchOptions) 
 }
 
 func (a *App) runLaunchWave(cmd *cobra.Command, opts *launchOptions, limit int) error {
-	if limit < 1 {
-		return fmt.Errorf("--limit must be greater than zero")
-	}
-	cfg, ledger, store, err := a.loadState()
-	if err != nil {
-		return err
-	}
-	launched := 0
-	for _, item := range ledger.Tasks {
-		if launched >= limit {
-			break
-		}
-		if item.Status != task.StatusReady && item.Status != task.StatusWorktreeCreated {
-			continue
-		}
-		if err := a.launchTask(cmd, cfg, store, item, prompt.KindImplement, agent.TaskWindowName(item), cfg.Agents.Implementation, task.StatusRunning, opts); err != nil {
-			a.printf("skip %s: %v\n", item.ID, err)
-			continue
-		}
-		launched++
-	}
-	a.printf("selected %d task(s)\n", launched)
-	return nil
+	a.printf("launch-wave is an alias for wave launch; prefer `yard wave launch`.\n")
+	return a.runWaveLaunch(cmd, opts, limit)
 }
 
 func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store, item task.Task, kind, window string, command config.AgentCommand, nextStatus task.Status, opts *launchOptions) error {

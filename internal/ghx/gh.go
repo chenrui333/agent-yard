@@ -27,14 +27,35 @@ type Issue struct {
 }
 
 type PullRequest struct {
-	Number           int    `json:"number"`
-	Title            string `json:"title"`
-	URL              string `json:"url"`
-	State            string `json:"state"`
-	HeadRefName      string `json:"headRefName"`
-	BaseRefName      string `json:"baseRefName"`
-	MergeStateStatus string `json:"mergeStateStatus"`
-	ReviewDecision   string `json:"reviewDecision"`
+	Number            int           `json:"number"`
+	Title             string        `json:"title"`
+	URL               string        `json:"url"`
+	State             string        `json:"state"`
+	HeadRefName       string        `json:"headRefName"`
+	BaseRefName       string        `json:"baseRefName"`
+	HeadRepository    Repository    `json:"headRepository"`
+	HeadRepoOwner     RepoOwner     `json:"headRepositoryOwner"`
+	IsCrossRepository bool          `json:"isCrossRepository"`
+	MergeStateStatus  string        `json:"mergeStateStatus"`
+	ReviewDecision    string        `json:"reviewDecision"`
+	StatusCheckRollup []CheckRollup `json:"statusCheckRollup"`
+}
+
+type Repository struct {
+	Name  string    `json:"name"`
+	Owner RepoOwner `json:"owner"`
+}
+
+type RepoOwner struct {
+	Login string `json:"login"`
+}
+
+type CheckRollup struct {
+	Name       string `json:"name"`
+	Workflow   string `json:"workflowName"`
+	State      string `json:"state"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
 }
 
 type CreatePROptions struct {
@@ -117,13 +138,41 @@ func (c Client) CreatePRWithBody(ctx context.Context, dir string, opts CreatePRO
 }
 
 func (c Client) PRView(ctx context.Context, dir, repoArg string, pr int) (PullRequest, error) {
-	args := []string{"pr", "view", strconv.Itoa(pr), "--json", "number,title,url,state,headRefName,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup"}
+	args := []string{"pr", "view", strconv.Itoa(pr), "--json", prJSONFields}
 	args = withRepo(args, repoArg)
 	result, err := c.run(ctx, dir, args...)
 	if err != nil {
 		return PullRequest{}, err
 	}
 	return ParsePRView(result.Stdout)
+}
+
+const prJSONFields = "number,title,url,state,headRefName,baseRefName,headRepository,headRepositoryOwner,isCrossRepository,mergeStateStatus,reviewDecision,statusCheckRollup"
+
+func (c Client) PRForBranch(ctx context.Context, dir, repoArg, branch, base string) (PullRequest, bool, error) {
+	if branch == "" {
+		return PullRequest{}, false, nil
+	}
+	args := []string{"pr", "list", "--head", branch, "--state", "open", "--limit", "100", "--json", prJSONFields}
+	args = withRepo(args, repoArg)
+	result, err := c.run(ctx, dir, args...)
+	if err != nil {
+		return PullRequest{}, false, err
+	}
+	var prs []PullRequest
+	if err := json.Unmarshal([]byte(result.Stdout), &prs); err != nil {
+		return PullRequest{}, false, fmt.Errorf("parse gh PR list JSON: %w", err)
+	}
+	if len(prs) == 0 {
+		return PullRequest{}, false, nil
+	}
+	expectedOwner, expectedRepo := repoArgOwnerName(repoArg)
+	for _, pr := range prs {
+		if prMatchesBranch(pr, branch, base, expectedOwner, expectedRepo) {
+			return pr, true, nil
+		}
+	}
+	return PullRequest{}, false, fmt.Errorf("open PR(s) for branch %q did not match base %q and repository %q", branch, base, repoArg)
 }
 
 func (c Client) PRChecks(ctx context.Context, dir, repoArg string, pr int) (string, error) {
@@ -169,4 +218,35 @@ func withRepo(args []string, repoArg string) []string {
 		return args
 	}
 	return append(args, "--repo", repoArg)
+}
+
+func prMatchesBranch(pr PullRequest, branch, base, owner, repo string) bool {
+	if pr.HeadRefName != branch {
+		return false
+	}
+	if base != "" && pr.BaseRefName != base {
+		return false
+	}
+	if owner == "" && repo == "" {
+		return true
+	}
+	if pr.IsCrossRepository {
+		return false
+	}
+	prOwner := pr.HeadRepoOwner.Login
+	if prOwner == "" {
+		prOwner = pr.HeadRepository.Owner.Login
+	}
+	if prOwner == "" || !strings.EqualFold(prOwner, owner) {
+		return false
+	}
+	return pr.HeadRepository.Name != "" && strings.EqualFold(pr.HeadRepository.Name, repo)
+}
+
+func repoArgOwnerName(repoArg string) (string, string) {
+	parts := strings.Split(strings.Trim(repoArg, "/"), "/")
+	if len(parts) < 2 {
+		return "", ""
+	}
+	return parts[len(parts)-2], parts[len(parts)-1]
 }

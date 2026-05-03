@@ -68,7 +68,8 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	assertContains(t, launchOut, "implement.md")
 
 	waveOut := runYard(t, bin, dir, "--config", configPath, "launch-wave", "--limit", "2", "--dry-run", "--force")
-	assertContains(t, waveOut, "selected 1 task(s)")
+	assertContains(t, waveOut, "launch-wave is an alias for wave launch")
+	assertContains(t, waveOut, "selected 0 task(s)")
 
 	wavePlanOut := runYard(t, bin, dir, "--config", configPath, "wave", "plan", "--limit", "2")
 	assertContains(t, wavePlanOut, "aws-route53")
@@ -322,6 +323,7 @@ func TestWavePrepareKeepsPreparingWhenCommentsFail(t *testing.T) {
 echo comment failed >&2
 exit 1
 `)
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nexit 1\n")
 	configPath := filepath.Join(dir, "yard.yaml")
 	writeFile(t, configPath, fmt.Sprintf(`repo: %q
 base_branch: main
@@ -583,7 +585,7 @@ agents:
 	assertContains(t, tasksData, "status: running")
 }
 
-func TestWaveLaunchContinuesAfterOccupiedManualLane(t *testing.T) {
+func TestWaveLaunchReassignsAwayFromOccupiedManualLane(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
@@ -648,7 +650,6 @@ agents:
 	if err != nil {
 		t.Fatalf("wave launch should continue after occupied manual lane: %v\noutput:\n%s", err, out)
 	}
-	assertContains(t, out, "skip first: tmux window impl-01 already exists")
 	assertContains(t, out, "selected 1 task(s)")
 
 	tmuxData := readFile(t, tmuxLog)
@@ -656,10 +657,68 @@ agents:
 	assertContains(t, tmuxData, "send-keys -t yard-test:impl-02")
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "id: first")
-	assertContains(t, tasksData, "status: worktree_created")
-	assertContains(t, tasksData, "id: second")
 	assertContains(t, tasksData, "assigned_agent: impl-02")
 	assertContains(t, tasksData, "status: running")
+	assertContains(t, tasksData, "id: second")
+}
+
+func TestWaveLaunchForceReusesOccupiedAssignedLane(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+	tmuxLog := filepath.Join(dir, "tmux.log")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "tmux"), fmt.Sprintf(`#!/bin/sh
+echo "$@" >> %q
+if [ "$1" = "has-session" ]; then
+  exit 0
+fi
+if [ "$1" = "list-windows" ]; then
+  echo impl-01
+  exit 0
+fi
+exit 0
+`, tmuxLog))
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: launchable
+    issue: 338
+    checkbox: Launchable task
+    service_family: s3
+    branch: launchable
+    worktree: %q
+    status: worktree_created
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
+`, worktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "wave", "launch", "--limit", "1", "--force")
+	if err != nil {
+		t.Fatalf("wave launch force: %v\n%s", err, out)
+	}
+	assertContains(t, out, "selected 1 task(s)")
+	tmuxData := readFile(t, tmuxLog)
+	assertContains(t, tmuxData, "send-keys -t yard-test:impl-01")
+	assertNotContains(t, tmuxData, "new-window -t yard-test -n impl-02")
 }
 
 func TestWaveLaunchFailsWhenNoSelectedTasksStart(t *testing.T) {
@@ -917,12 +976,466 @@ agents:
 		t.Fatalf("expected git worktree at %s: %v", s3Worktree, err)
 	}
 	tasksData = readFile(t, filepath.Join(dir, "tasks.yaml"))
-	assertContains(t, tasksData, "assigned_agent: impl-01")
+	assertContains(t, tasksData, "assigned_agent: impl-")
 	assertContains(t, tasksData, s3Worktree)
 
 	waveLaunchOut := runYard(t, bin, dir, "--config", configPath, "wave", "launch", "--limit", "1", "--dry-run", "--force")
 	assertContains(t, waveLaunchOut, "selected 1 task(s)")
 	assertContains(t, waveLaunchOut, "implement.md")
+}
+
+func TestSyncIssueWriteImportsCheckboxes(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+cat <<\EOF
+{"title":"AWS coverage","url":"https://github.com/o/r/issues/338","body":"## Route 53\n- [ ] Hosted zone support\n- [x] Done route item\n## S3\n- [ ] Bucket support\n"}
+EOF
+`)
+	writeFile(t, configPath, `repo: "."
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: existing
+    issue: 338
+    checkbox: Hosted zone support
+    service_family: route-53
+    branch: existing
+    worktree: ""
+    status: running
+    pr_url: "https://github.com/o/r/pull/10"
+    pr_number: 10
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "sync", "issue", "338", "--write", "--section", "s3", "--id-prefix", "aws-", "--branch-prefix", "tf-")
+	if err != nil {
+		t.Fatalf("sync issue: %v\n%s", err, out)
+	}
+	assertContains(t, out, "added 1 task(s)")
+	assertContains(t, out, "aws-bucket-support")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "id: existing")
+	assertContains(t, tasksData, "status: running")
+	assertContains(t, tasksData, "pr_number: 10")
+	assertContains(t, tasksData, "id: aws-bucket-support")
+	assertContains(t, tasksData, "branch: tf-bucket-support")
+	assertContains(t, tasksData, "service_family: s3")
+	assertNotContains(t, tasksData, "Done route item")
+}
+
+func TestPRPushesBranchAndRecordsExistingPR(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"headRepositoryOwner\":{\"login\":\"o\"},\"headRepository\":{\"name\":\"r\"},\"isCrossRepository\":false}]"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: needs_review
+    pr_url: ""
+    pr_number: 0
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "pr", "feature")
+	if err != nil {
+		t.Fatalf("pr feature: %v\n%s", err, out)
+	}
+	assertContains(t, out, "existing PR: https://github.com/o/r/pull/123")
+	runGit(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/feature-task")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: pr_opened")
+	assertContains(t, tasksData, "pr_number: 123")
+}
+
+func TestPRRejectsExistingPRWithWrongBase(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "[{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"release\",\"headRepositoryOwner\":{\"login\":\"o\"},\"headRepository\":{\"name\":\"r\"},\"isCrossRepository\":false}]"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: needs_review
+    pr_url: ""
+    pr_number: 0
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "pr", "feature", "--no-push")
+	if err == nil {
+		t.Fatalf("expected pr feature to reject wrong-base PR\noutput:\n%s", out)
+	}
+	assertContains(t, out, "did not match base \"main\" and repository \"o/r\"")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: needs_review")
+	assertContains(t, tasksData, "pr_number: 0")
+}
+
+func TestReadyWritesMergeReadyWhenChecksPass(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+	runGit(t, repo, "push", "-u", "origin", "feature-task")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"mergeStateStatus\":\"CLEAN\",\"reviewDecision\":\"APPROVED\",\"statusCheckRollup\":[{\"name\":\"test\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(binDir, "tmux"), `#!/bin/sh
+if [ "$1" = "capture-pane" ]; then
+  echo "There are no P1/P2/P3 TODO comments."
+  exit 0
+fi
+exit 0
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+session: yard-test
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: pr_opened
+    pr_url: "https://github.com/o/r/pull/123"
+    pr_number: 123
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a", "--write")
+	if err != nil {
+		t.Fatalf("ready feature: %v\n%s", err, out)
+	}
+	assertContains(t, out, "merge state")
+	assertContains(t, out, "checks")
+	assertContains(t, out, "review lane")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: merge_ready")
+}
+
+func TestReadyFailsWhenLocalHeadIsUnpushed(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+	runGit(t, repo, "push", "-u", "origin", "feature-task")
+	writeFile(t, filepath.Join(repo, "unpushed.txt"), "unpushed\n")
+	runGit(t, repo, "add", "unpushed.txt")
+	runGit(t, repo, "commit", "-m", "unpushed")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"mergeStateStatus\":\"CLEAN\",\"reviewDecision\":\"APPROVED\",\"statusCheckRollup\":[{\"name\":\"test\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: pr_opened
+    pr_url: "https://github.com/o/r/pull/123"
+    pr_number: 123
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature")
+	if err == nil {
+		t.Fatalf("ready should fail for unpushed local HEAD\noutput:\n%s", out)
+	}
+	assertContains(t, out, "local HEAD is not contained in origin/feature-task")
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: pr_opened")
+}
+
+func TestReadyFailsCommittedWhitespaceDiff(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "bad.txt"), "bad trailing \n")
+	runGit(t, repo, "add", "bad.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+	runGit(t, repo, "push", "-u", "origin", "feature-task")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"mergeStateStatus\":\"CLEAN\",\"reviewDecision\":\"APPROVED\",\"statusCheckRollup\":[{\"name\":\"test\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: pr_opened
+    pr_url: "https://github.com/o/r/pull/123"
+    pr_number: 123
+`, repo))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature")
+	if err == nil {
+		t.Fatalf("ready should fail for committed whitespace errors\noutput:\n%s", out)
+	}
+	assertContains(t, out, "diff check")
+	assertContains(t, out, "trailing whitespace")
+}
+
+func TestGCPruneMergedRemovesRunStateAndReviewWorktree(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	reviewDir := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
+	runDir := filepath.Join(dir, ".yard", "runs", "feature")
+
+	writeExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
+if [ "$1" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "worktree" ] && [ "$2" = "remove" ]; then
+  rm -rf "$3"
+  exit 0
+fi
+echo "unexpected git args: $*" >&2
+exit 1
+`)
+	writeFile(t, filepath.Join(runDir, "implement.md"), "prompt\n")
+	writeFile(t, filepath.Join(reviewDir, ".git"), "gitdir: fake\n")
+	writeFile(t, configPath, `repo: "."
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: ""
+    status: merged
+    pr_url: "https://github.com/o/r/pull/123"
+    pr_number: 123
+`)
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "gc", "--prune", "--merged")
+	if err != nil {
+		t.Fatalf("gc prune: %v\n%s", err, out)
+	}
+	assertContains(t, out, "removed 2 candidate(s)")
+	if _, err := os.Stat(runDir); !os.IsNotExist(err) {
+		t.Fatalf("run dir should be removed, stat err: %v", err)
+	}
+	if _, err := os.Stat(reviewDir); !os.IsNotExist(err) {
+		t.Fatalf("review dir should be removed, stat err: %v", err)
+	}
 }
 
 func buildYard(t *testing.T) string {

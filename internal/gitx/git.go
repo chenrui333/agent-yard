@@ -49,6 +49,17 @@ func (c Client) Fetch(ctx context.Context, repo, remote string) error {
 	return err
 }
 
+func (c Client) Push(ctx context.Context, dir, remote, branch string) error {
+	if remote == "" {
+		return fmt.Errorf("remote is required")
+	}
+	if branch == "" {
+		return fmt.Errorf("branch is required")
+	}
+	_, err := c.run(ctx, dir, "push", "-u", remote, branch)
+	return err
+}
+
 func (c Client) TopLevel(ctx context.Context, dir string) (string, error) {
 	result, err := c.run(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
@@ -78,6 +89,18 @@ func (c Client) VerifyRef(ctx context.Context, dir, ref string) error {
 	return err
 }
 
+func (c Client) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
+	_, err := c.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	var cmdErr *execx.CommandError
+	if errors.As(err, &cmdErr) && cmdErr.Result.ExitCode == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
 func (c Client) StatusPorcelain(ctx context.Context, dir string) (string, error) {
 	result, err := c.run(ctx, dir, "status", "--porcelain")
 	if err != nil {
@@ -100,6 +123,19 @@ func (c Client) WorktreeList(ctx context.Context, repo string) ([]Worktree, erro
 		return nil, err
 	}
 	return ParseWorktreeList(result.Stdout), nil
+}
+
+func (c Client) RemoveWorktree(ctx context.Context, repo, path string, force bool) error {
+	if path == "" {
+		return fmt.Errorf("worktree path is required")
+	}
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, path)
+	_, err := c.run(ctx, repo, args...)
+	return err
 }
 
 func (c Client) AddWorktree(ctx context.Context, repo, branch, path, remote, baseBranch string) error {
@@ -133,6 +169,15 @@ func (c Client) MergeBase(ctx context.Context, dir, ref string) (string, error) 
 
 func (c Client) DiffCheck(ctx context.Context, dir string) error {
 	_, err := c.run(ctx, dir, "diff", "--check")
+	return err
+}
+
+func (c Client) DiffCheckSince(ctx context.Context, dir, baseRef string) error {
+	base, err := c.MergeBase(ctx, dir, baseRef)
+	if err != nil {
+		return err
+	}
+	_, err = c.run(ctx, dir, "diff", "--check", base+"..HEAD")
 	return err
 }
 

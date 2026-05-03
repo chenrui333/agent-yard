@@ -46,11 +46,14 @@ For each workset, run this loop until the pull request is ready:
 4. Treat P1/P2/P3 review findings or TODO comments as required follow-up work.
 5. Send follow-up work back to the implementation terminal or patch it directly in the assigned worktree.
 6. After meaningful commits, update the pull request title or body so reviewers can understand the current scope without reconstructing history.
-7. Repeat until the pull request build is green and the review terminal reports no P1/P2/P3 TODO comments.
+7. Use `yard ready TASK_ID --review-lane LANE --write` as the final gate once CI is green and the review terminal reports no P1/P2/P3 TODO comments.
+8. Repeat until the readiness gate passes.
 
 ## Safety
 
 - Protect `tasks.yaml` writes with the task store lock and atomic save path.
 - Derive status from the local system where possible instead of trusting stale YAML.
+- Treat live `impl-*` tmux windows as reserved lanes when planning or launching waves.
+- Keep `yard gc` report-only by default; destructive cleanup requires explicit prune flags.
 - Avoid destructive git operations unless the user explicitly asks for them.
 - Keep review lanes no-push by prompt and by workflow convention.

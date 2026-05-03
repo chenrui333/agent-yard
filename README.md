@@ -10,7 +10,7 @@ It is intentionally generic: tmux is the durable execution backend for agent lan
 - No daemon or autonomous supervisor.
 - No custom terminal multiplexer.
 - No replacement for tmux, git, gh, Codex, or Claude.
-- No SQLite, MCP, Ghostty, or iTerm automation in the MVP.
+- No SQLite, MCP, Ghostty, or iTerm automation.
 
 ## Install From Source
 
@@ -25,8 +25,8 @@ For local development:
 
 Releases are built by GoReleaser from immutable version tags:
 
-    git tag v0.1.0
-    git push origin v0.1.0
+    git tag -a v0.0.2 -m "v0.0.2"
+    git push origin v0.0.2
 
 The release workflow publishes tarballs for:
 
@@ -42,10 +42,10 @@ Renovate is configured for dependency PRs with semantic commit titles, a two-day
 ## Required Tools
 
 - git
-- gh
+- gh for GitHub issue and pull request commands
 - tmux
 - codex
-- claude is optional for future review lanes
+- claude is optional when configured as an agent command
 
 ## Quickstart
 
@@ -54,7 +54,9 @@ Initialize local state in the orchestration repository:
     yard init
     yard doctor
 
-Edit yard.yaml and tasks.yaml. Then inspect the board:
+Edit yard.yaml, then import issue checkboxes or edit tasks.yaml directly. Inspect the board:
+
+    yard sync issue 338 --write --id-prefix aws- --branch-prefix aws-
 
     yard status
     yard board
@@ -66,20 +68,25 @@ Create a task worktree:
 Launch one task or a small wave:
 
     yard launch aws-route53 --dry-run
-    yard launch-wave --limit 2 --dry-run
     yard wave plan --limit 3
     yard wave prepare --limit 3 --dry-run
     yard wave launch --limit 3 --dry-run
 
+`yard launch-wave` remains available as a compatibility alias for `yard wave launch`.
+
 Open a pull request after the task branch is ready:
 
     yard pr aws-route53 --dry-run
+    yard pr aws-route53
+    yard ready aws-route53 --review-lane pr-review-a --write
 
 Inspect or attach to tmux-backed lanes:
 
     yard attach
     yard attach aws-route53
     yard capture aws-route53
+    yard gc
+    yard gc --prune --merged
 
 ## Sample yard.yaml
 
@@ -130,15 +137,15 @@ Inspect or attach to tmux-backed lanes:
 
 ## Generic Multi-Agent Workflow
 
-1. Add one tasks.yaml entry per issue checkbox.
-2. Run yard worktree TASK_ID to create a branch-specific git worktree from origin/main.
-3. Run yard launch TASK_ID to start the implementation lane in tmux.
-4. Run yard review-local TASK_ID before opening a PR.
-5. Run yard pr TASK_ID when the branch is ready.
-6. Run yard review-pr PR_NUMBER --lane pr-review-a to launch an isolated no-push PR review lane.
-7. Use yard status and yard board as the coordinator view.
+1. Import issue checkboxes with yard sync issue ISSUE --write, or add one tasks.yaml entry per task.
+2. Run yard wave plan, yard wave prepare, and yard wave launch to allocate lanes and start implementation terminals.
+3. Run yard review-local TASK_ID before opening a PR.
+4. Run yard pr TASK_ID when the branch is ready; it validates the worktree, pushes the branch by default, and records an existing PR when one already exists.
+5. Run yard review-pr PR_NUMBER --lane pr-review-a to launch an isolated no-push PR review lane.
+6. Run yard ready TASK_ID --review-lane pr-review-a --write once CI is green and the review lane has no P1/P2/P3 TODO findings.
+7. Use yard status, yard board, attach, capture, and gc as the coordinator view and cleanup loop.
 
-For larger waves, use yard wave plan to select distinct service families when possible, yard wave prepare to claim lanes and create worktrees, and yard wave launch to start the tmux sessions.
+For larger waves, yard wave commands select distinct service families when possible and reserve lanes already occupied by live impl-* tmux windows.
 
 Terraformer AWS coverage is a good example campaign for this model, but project-specific implementation rules belong in local prompt templates rather than the built-in defaults.
 
@@ -177,11 +184,12 @@ The dispatcher keeps the loop moving:
 - tasks.yaml is locked during writes and replaced atomically.
 - yard status derives worktree, dirty, tmux, and PR hints from reality when available.
 - GitHub mutations require explicit commands; claim comments require --comment, and PR creation supports --dry-run.
+- PR creation pushes task branches by default after local preflights; use --no-push only when another process owns pushing.
 - Review prompts instruct agents not to push code.
 
 ## Roadmap
 
 - list and show commands.
 - Shell completions from Cobra.
-- Better GitHub issue checkbox reconciliation.
+- richer task filtering and per-task show output.
 - Optional Homebrew formula notes once the CLI shape stabilizes.
