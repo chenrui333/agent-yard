@@ -36,6 +36,7 @@ func (a *App) newReviewLocalCmd() *cobra.Command {
 func (a *App) newReviewPRCmd() *cobra.Command {
 	opts := &launchOptions{}
 	lane := "pr-review-a"
+	resetWorktree := false
 	cmd := &cobra.Command{
 		Use:   "review-pr <pr-number>",
 		Short: "Launch a no-push PR review lane",
@@ -45,12 +46,13 @@ func (a *App) newReviewPRCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid PR number %q", args[0])
 			}
-			return a.runReviewPR(cmd, prNumber, lane, opts)
+			return a.runReviewPR(cmd, prNumber, lane, resetWorktree, opts)
 		},
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print the review command without launching")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "reuse an existing review window")
 	cmd.Flags().StringVar(&lane, "lane", lane, "review lane name")
+	cmd.Flags().BoolVar(&resetWorktree, "reset-worktree", false, "reset a dirty isolated review worktree before checkout")
 	return cmd
 }
 
@@ -67,7 +69,7 @@ func (a *App) runReviewLocal(cmd *cobra.Command, taskID string, opts *launchOpti
 	return a.launchTask(cmd, cfg, store, *item, prompt.KindLocalReview, window, cfg.Agents.LocalReview, task.StatusReviewPending, opts)
 }
 
-func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, opts *launchOptions) error {
+func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWorktree bool, opts *launchOptions) error {
 	cfg, err := a.loadConfig()
 	if err != nil {
 		return err
@@ -96,7 +98,7 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, opts *l
 		a.printf("worktree: %s\ncheckout: gh pr checkout %d --detach\nwindow: %s\ncommand: %s\n", reviewWorktree, prNumber, window, launchCommand)
 		return nil
 	}
-	if _, err := a.ensurePRReviewWorktree(cmd.Context(), cfg, prNumber, lane, opts.force); err != nil {
+	if _, err := a.ensurePRReviewWorktree(cmd.Context(), cfg, prNumber, lane, resetWorktree); err != nil {
 		return err
 	}
 	if err := tmux.EnsureExists(); err != nil {
@@ -128,7 +130,7 @@ func (a *App) prReviewWorktreePath(prNumber int, lane string) string {
 	return a.yardPath("reviews", fmt.Sprintf("pr-%d-%s", prNumber, agent.SanitizeWindowName(lane)))
 }
 
-func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prNumber int, lane string, force bool) (string, error) {
+func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prNumber int, lane string, resetWorktree bool) (string, error) {
 	repo := config.RepoPath(a.configPath, cfg)
 	if stat, err := os.Stat(repo); err != nil {
 		return "", fmt.Errorf("repo path %s is not accessible: %w", repo, err)
@@ -147,13 +149,19 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 		if !stat.IsDir() {
 			return "", fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
 		}
-		if !force {
-			dirty, err := git.IsDirty(ctx, reviewWorktree)
-			if err != nil {
-				return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
-			}
-			if dirty {
+		dirty, err := git.IsDirty(ctx, reviewWorktree)
+		if err != nil {
+			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
+		}
+		if dirty {
+			if !resetWorktree {
 				return "", fmt.Errorf("review worktree %s is dirty", reviewWorktree)
+			}
+			if err := git.ResetHard(ctx, reviewWorktree); err != nil {
+				return "", err
+			}
+			if err := git.Clean(ctx, reviewWorktree); err != nil {
+				return "", err
 			}
 		}
 	} else if os.IsNotExist(err) {

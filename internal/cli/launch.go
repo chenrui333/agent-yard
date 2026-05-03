@@ -159,6 +159,9 @@ func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store
 	}
 	return store.Update(item.ID, func(current *task.Task) error {
 		current.Worktree = worktreePath
+		if item.AssignedAgent != "" {
+			current.AssignedAgent = item.AssignedAgent
+		}
 		current.Status = nextStatus
 		return nil
 	})

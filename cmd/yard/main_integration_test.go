@@ -95,6 +95,42 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	tasksData = readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: blocked")
 	assertContains(t, tasksData, "note: needs manual split")
+
+	clearNoteOut := runYard(t, bin, dir, "--config", configPath, "set-status", "aws-route53", "merge_ready", "--note", "")
+	assertContains(t, clearNoteOut, "aws-route53 -> merge_ready")
+	tasksData = readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: merge_ready")
+	assertNotContains(t, tasksData, "note:")
+}
+
+func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "yard.yaml")
+
+	runYard(t, bin, dir, "--config", configPath, "init")
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: broken
+    issue: 338
+    checkbox: Missing branch
+    service_family: broken
+    branch: ""
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
+`)
+
+	out, err := runYardErr(bin, dir, "--config", configPath, "wave", "prepare", "--limit", "1")
+	if err == nil {
+		t.Fatalf("expected wave prepare to fail\noutput:\n%s", out)
+	}
+	assertContains(t, out, "skip broken")
+	assertContains(t, out, "prepared 0 task(s)")
+
+	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
+	assertContains(t, tasksData, "status: ready")
+	assertNotContains(t, tasksData, "assigned_agent:")
 }
 
 func TestYardWorktreeCreatesGitWorktree(t *testing.T) {
@@ -216,13 +252,18 @@ func repoRoot() string {
 
 func runYard(t *testing.T, bin, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(bin, args...)
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
+	output, err := runYardErr(bin, dir, args...)
 	if err != nil {
 		t.Fatalf("yard %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
-	return string(output)
+	return output
+}
+
+func runYardErr(bin, dir string, args ...string) (string, error) {
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -259,5 +300,12 @@ func assertContains(t *testing.T, got, want string) {
 	t.Helper()
 	if !strings.Contains(got, want) {
 		t.Fatalf("expected output to contain %q\noutput:\n%s", want, got)
+	}
+}
+
+func assertNotContains(t *testing.T, got, want string) {
+	t.Helper()
+	if strings.Contains(got, want) {
+		t.Fatalf("expected output not to contain %q\noutput:\n%s", want, got)
 	}
 }

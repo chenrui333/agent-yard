@@ -135,6 +135,16 @@ func (c Client) DiffCheck(ctx context.Context, dir string) error {
 	return err
 }
 
+func (c Client) ResetHard(ctx context.Context, dir string) error {
+	_, err := c.run(ctx, dir, "reset", "--hard")
+	return err
+}
+
+func (c Client) Clean(ctx context.Context, dir string) error {
+	_, err := c.run(ctx, dir, "clean", "-fd")
+	return err
+}
+
 func (c Client) AheadBehind(ctx context.Context, dir, baseRef string) (AheadBehind, error) {
 	result, err := c.run(ctx, dir, "rev-list", "--left-right", "--count", baseRef+"...HEAD")
 	if err != nil {

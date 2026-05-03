@@ -15,14 +15,14 @@ func (a *App) newSetStatusCmd() *cobra.Command {
 		Long:  "Set a task status in tasks.yaml. Valid statuses: " + validStatusValues(),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runSetStatus(args[0], args[1], note)
+			return a.runSetStatus(args[0], args[1], note, cmd.Flags().Changed("note"))
 		},
 	}
 	cmd.Flags().StringVar(&note, "note", "", "optional status note to store with the task")
 	return cmd
 }
 
-func (a *App) runSetStatus(taskID, statusValue, note string) error {
+func (a *App) runSetStatus(taskID, statusValue, note string, noteProvided bool) error {
 	status, err := task.ParseStatus(statusValue)
 	if err != nil {
 		return err
@@ -30,14 +30,14 @@ func (a *App) runSetStatus(taskID, statusValue, note string) error {
 	store := task.NewStore(a.taskPath())
 	if err := store.Update(taskID, func(item *task.Task) error {
 		item.Status = status
-		if note != "" {
+		if noteProvided {
 			item.Note = note
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	if note != "" {
+	if noteProvided && note != "" {
 		a.printf("%s -> %s (%s)\n", taskID, status, note)
 		return nil
 	}

@@ -86,8 +86,7 @@ func (a *App) runWavePlan(limit int) error {
 		EligibleStatuses:            wave.Eligible(task.StatusReady),
 		PreferDistinctServiceFamily: true,
 	})
-	a.renderWaveSelections(selections)
-	return nil
+	return a.renderWaveSelections(selections)
 }
 
 func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool) error {
@@ -108,11 +107,11 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 			EligibleStatuses:            wave.Eligible(task.StatusReady),
 			PreferDistinctServiceFamily: true,
 		})
-		a.renderWaveSelections(selections)
-		return nil
+		return a.renderWaveSelections(selections)
 	}
 
 	var selections []wave.Selection
+	originals := map[string]task.Task{}
 	if err := store.WithLock(func(ledger *task.Ledger) error {
 		selections = wave.SelectTasks(*ledger, wave.Options{
 			Limit:                       limit,
@@ -122,6 +121,7 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		for i := range selections {
 			taskID := selections[i].Task.ID
 			lane := selections[i].Lane
+			originals[taskID] = selections[i].Task
 			if err := ledger.Update(taskID, func(item *task.Task) error {
 				item.Status = task.StatusClaimed
 				item.AssignedAgent = lane
@@ -145,12 +145,26 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 			return err
 		}
 	}
-	for i, selected := range selections {
-		worktreePath, _, err := a.ensureTaskWorktree(cmd.Context(), cfg, selected.Task, i == 0)
+	prepared := 0
+	var failures []string
+	fetched := false
+	for _, selected := range selections {
+		worktreePath, _, err := a.ensureTaskWorktree(cmd.Context(), cfg, selected.Task, !fetched)
 		if err != nil {
 			a.printf("skip %s: %v\n", selected.Task.ID, err)
+			failures = append(failures, selected.Task.ID)
+			original := originals[selected.Task.ID]
+			if updateErr := store.Update(selected.Task.ID, func(item *task.Task) error {
+				item.Status = original.Status
+				item.AssignedAgent = original.AssignedAgent
+				item.Worktree = original.Worktree
+				return nil
+			}); updateErr != nil {
+				return updateErr
+			}
 			continue
 		}
+		fetched = true
 		if err := store.Update(selected.Task.ID, func(item *task.Task) error {
 			item.Worktree = worktreePath
 			item.Status = task.StatusWorktreeCreated
@@ -164,8 +178,12 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 				return err
 			}
 		}
+		prepared++
 	}
-	a.printf("prepared %d task(s)\n", len(selections))
+	a.printf("prepared %d task(s)\n", prepared)
+	if len(failures) > 0 {
+		return fmt.Errorf("failed to prepare %d task(s): %s", len(failures), strings.Join(failures, ", "))
+	}
 	return nil
 }
 
@@ -198,15 +216,17 @@ func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) 
 	return nil
 }
 
-func (a *App) renderWaveSelections(selections []wave.Selection) {
+func (a *App) renderWaveSelections(selections []wave.Selection) error {
 	tw := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TASK\tSTATUS\tFAMILY\tLANE\tBRANCH\tREASON\tWARNINGS")
+	if _, err := fmt.Fprintln(tw, "TASK\tSTATUS\tFAMILY\tLANE\tBRANCH\tREASON\tWARNINGS"); err != nil {
+		return err
+	}
 	for _, selected := range selections {
 		warnings := "-"
 		if len(selected.Warnings) > 0 {
 			warnings = strings.Join(selected.Warnings, "; ")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			selected.Task.ID,
 			selected.Task.Status,
 			emptyAs(selected.Task.ServiceFamily, "-"),
@@ -214,7 +234,9 @@ func (a *App) renderWaveSelections(selections []wave.Selection) {
 			emptyAs(selected.Task.Branch, "-"),
 			selected.Reason,
 			warnings,
-		)
+		); err != nil {
+			return err
+		}
 	}
-	_ = tw.Flush()
+	return tw.Flush()
 }

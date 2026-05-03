@@ -50,7 +50,9 @@ func (a *App) runDoctor(ctx context.Context) error {
 	cfg, err := a.loadConfig()
 	add("config", err, a.configPath)
 	if err != nil {
-		a.renderDoctorRows(rows)
+		if renderErr := a.renderDoctorRows(rows); renderErr != nil {
+			return renderErr
+		}
 		return fmt.Errorf("doctor found %d failure(s)", failures)
 	}
 
@@ -92,20 +94,26 @@ func (a *App) runDoctor(ctx context.Context) error {
 		}
 	}
 
-	a.renderDoctorRows(rows)
+	if err := a.renderDoctorRows(rows); err != nil {
+		return err
+	}
 	if failures > 0 {
 		return fmt.Errorf("doctor found %d failure(s)", failures)
 	}
 	return nil
 }
 
-func (a *App) renderDoctorRows(rows []doctorRow) {
+func (a *App) renderDoctorRows(rows []doctorRow) error {
 	tw := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "CHECK\tSTATUS\tDETAIL")
-	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", row.Name, row.Status, row.Detail)
+	if _, err := fmt.Fprintln(tw, "CHECK\tSTATUS\tDETAIL"); err != nil {
+		return err
 	}
-	_ = tw.Flush()
+	for _, row := range rows {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", row.Name, row.Status, row.Detail); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
 }
 
 func execxLook(name string) error {

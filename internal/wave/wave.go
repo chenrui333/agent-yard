@@ -31,14 +31,17 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 	selected := make([]Selection, 0, opts.Limit)
 	selectedIDs := map[string]bool{}
 	usedFamilies := map[string]bool{}
+	usedLanes := activeLanes(ledger)
 
 	add := func(item task.Task, reason string) bool {
 		if len(selected) >= opts.Limit || selectedIDs[item.ID] || !eligible[item.Status] {
 			return false
 		}
-		lane := item.AssignedAgent
+		lane := strings.TrimSpace(item.AssignedAgent)
 		if lane == "" {
-			lane = fmt.Sprintf("impl-%02d", len(selected)+1)
+			lane = nextLane(len(selected)+1, usedLanes)
+		} else if owner, used := usedLanes[lane]; used && owner != item.ID {
+			return false
 		}
 		var warnings []string
 		family := strings.TrimSpace(item.ServiceFamily)
@@ -49,6 +52,7 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 		}
 		selected = append(selected, Selection{Task: item, Lane: lane, Reason: reason, Warnings: warnings})
 		selectedIDs[item.ID] = true
+		usedLanes[lane] = item.ID
 		if family != "" {
 			usedFamilies[family] = true
 		}
@@ -68,6 +72,36 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 		add(item, "eligible fill")
 	}
 	return selected
+}
+
+func activeLanes(ledger task.Ledger) map[string]string {
+	used := map[string]string{}
+	for _, item := range ledger.Tasks {
+		lane := strings.TrimSpace(item.AssignedAgent)
+		if lane == "" || !reservesLane(item.Status) {
+			continue
+		}
+		if _, exists := used[lane]; !exists {
+			used[lane] = item.ID
+		}
+	}
+	return used
+}
+
+func reservesLane(status task.Status) bool {
+	return status != task.StatusMerged && status != task.StatusBlocked
+}
+
+func nextLane(start int, used map[string]string) string {
+	if start < 1 {
+		start = 1
+	}
+	for i := start; ; i++ {
+		lane := fmt.Sprintf("impl-%02d", i)
+		if _, exists := used[lane]; !exists {
+			return lane
+		}
+	}
 }
 
 func Eligible(statuses ...task.Status) map[task.Status]bool {

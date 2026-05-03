@@ -25,8 +25,7 @@ func (a *App) newStatusCmd() *cobra.Command {
 				return err
 			}
 			rows := a.collectStatusRows(cmd, cfg, ledger)
-			statusx.RenderSummary(a.out, rows)
-			return nil
+			return statusx.RenderSummary(a.out, rows)
 		},
 	}
 }
@@ -41,8 +40,7 @@ func (a *App) newBoardCmd() *cobra.Command {
 				return err
 			}
 			rows := a.collectStatusRows(cmd, cfg, ledger)
-			statusx.RenderBoard(a.out, rows)
-			return nil
+			return statusx.RenderBoard(a.out, rows)
 		},
 	}
 }

@@ -50,3 +50,42 @@ func TestSelectTasksFillsWhenFamiliesRepeat(t *testing.T) {
 		t.Fatalf("second selection = %#v; want repeated-family warning", got[1])
 	}
 }
+
+func TestSelectTasksAvoidsExistingAssignedLane(t *testing.T) {
+	ledger := task.Ledger{Tasks: []task.Task{
+		{ID: "running", ServiceFamily: "ec2", Status: task.StatusRunning, AssignedAgent: "impl-01"},
+		{ID: "ready", ServiceFamily: "s3", Status: task.StatusReady},
+	}}
+	got := SelectTasks(ledger, Options{
+		Limit:                       1,
+		EligibleStatuses:            Eligible(task.StatusReady),
+		PreferDistinctServiceFamily: true,
+	})
+	if len(got) != 1 {
+		t.Fatalf("len = %d; want 1", len(got))
+	}
+	if got[0].Lane != "impl-02" {
+		t.Fatalf("lane = %q; want impl-02", got[0].Lane)
+	}
+}
+
+func TestSelectTasksAvoidsDuplicateSelectedLanes(t *testing.T) {
+	ledger := task.Ledger{Tasks: []task.Task{
+		{ID: "preassigned", ServiceFamily: "ec2", Status: task.StatusReady, AssignedAgent: "impl-02"},
+		{ID: "unassigned", ServiceFamily: "s3", Status: task.StatusReady},
+	}}
+	got := SelectTasks(ledger, Options{
+		Limit:                       2,
+		EligibleStatuses:            Eligible(task.StatusReady),
+		PreferDistinctServiceFamily: true,
+	})
+	if len(got) != 2 {
+		t.Fatalf("len = %d; want 2", len(got))
+	}
+	if got[0].Lane != "impl-02" {
+		t.Fatalf("first lane = %q; want impl-02", got[0].Lane)
+	}
+	if got[1].Lane == "impl-02" {
+		t.Fatalf("second lane reused impl-02: %#v", got)
+	}
+}
