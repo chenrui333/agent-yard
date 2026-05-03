@@ -263,7 +263,7 @@ agents:
 	assertContains(t, out, "distinct service_family")
 }
 
-func TestWavePrepareKeepsWorktreeStateWhenCommentFails(t *testing.T) {
+func TestWavePrepareKeepsPreparingWhenCommentsFail(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
@@ -316,23 +316,40 @@ agents:
     status: ready
     pr_url: ""
     pr_number: 0
+  - id: route53
+    issue: 338
+    checkbox: Route53 resources
+    service_family: route53
+    branch: route53-resources
+    worktree: ""
+    status: ready
+    pr_url: ""
+    pr_number: 0
 `)
 
-	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "wave", "prepare", "--limit", "1", "--comment")
-	if err == nil {
-		t.Fatalf("expected wave prepare comment failure\noutput:\n%s", out)
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "wave", "prepare", "--limit", "2", "--comment")
+	if err != nil {
+		t.Fatalf("wave prepare comment failures should be non-fatal: %v\noutput:\n%s", err, out)
 	}
-	assertContains(t, out, "prepared 1 task(s)")
-	assertContains(t, out, "failed to prepare 1 task(s): s3")
+	assertContains(t, out, "comment failed s3")
+	assertContains(t, out, "comment failed route53")
+	assertContains(t, out, "prepared 2 task(s)")
+	assertContains(t, out, "comment failed for 2 prepared task(s): s3, route53")
 
 	worktree := filepath.Join(srcRoot, "repo.s3-resources")
 	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
 		t.Fatalf("expected git worktree at %s: %v", worktree, err)
 	}
+	secondWorktree := filepath.Join(srcRoot, "repo.route53-resources")
+	if _, err := os.Stat(filepath.Join(secondWorktree, ".git")); err != nil {
+		t.Fatalf("expected git worktree at %s: %v", secondWorktree, err)
+	}
 	tasksData := readFile(t, filepath.Join(dir, "tasks.yaml"))
 	assertContains(t, tasksData, "status: worktree_created")
 	assertContains(t, tasksData, "assigned_agent: impl-01")
+	assertContains(t, tasksData, "assigned_agent: impl-02")
 	assertContains(t, tasksData, worktree)
+	assertContains(t, tasksData, secondWorktree)
 }
 
 func TestReviewPRChecksWindowBeforeWorktreeMutation(t *testing.T) {

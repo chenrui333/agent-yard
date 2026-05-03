@@ -123,6 +123,11 @@ func ReservedLanes(ledger task.Ledger) map[string]string {
 	return reserved
 }
 
+func ReservedLaneOwner(ledger task.Ledger, lane string) (string, bool) {
+	owner, ok := activeLanes(ledger)[normalizeLane(lane)]
+	return owner, ok
+}
+
 func reservesLane(status task.Status) bool {
 	return status != task.StatusMerged && status != task.StatusBlocked
 }

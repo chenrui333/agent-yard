@@ -128,22 +128,31 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 
 	prepared := 0
 	var failures []string
+	var commentFailures []string
 	fetched := false
 	for _, selected := range selections {
-		worktreePath, created, err := a.ensureTaskWorktree(cmd.Context(), cfg, selected.Task, !fetched)
+		claimedTask, err := a.reserveWaveTask(store, selected.Task, selected.Lane)
 		if err != nil {
 			a.printf("skip %s: %v\n", selected.Task.ID, err)
 			failures = append(failures, selected.Task.ID)
+			continue
+		}
+		worktreePath, created, err := a.ensureTaskWorktree(cmd.Context(), cfg, claimedTask, !fetched)
+		if err != nil {
+			a.printf("skip %s: %v\n", selected.Task.ID, err)
+			failures = append(failures, selected.Task.ID)
+			if updateErr := a.rollbackWaveClaim(store, selected.Task, selected.Lane); updateErr != nil {
+				return updateErr
+			}
 			continue
 		}
 		if created {
 			fetched = true
 		}
 		if err := store.Update(selected.Task.ID, func(item *task.Task) error {
-			if item.Status != task.StatusReady {
-				return fmt.Errorf("task %q status changed to %s", item.ID, item.Status)
+			if item.Status != task.StatusClaimed || agent.SanitizeWindowName(item.AssignedAgent) != selected.Lane {
+				return fmt.Errorf("task %q claim changed before worktree update", item.ID)
 			}
-			item.AssignedAgent = selected.Lane
 			item.Worktree = worktreePath
 			item.Status = task.StatusWorktreeCreated
 			return nil
@@ -154,16 +163,52 @@ func (a *App) runWavePrepare(cmd *cobra.Command, limit int, comment, dryRun bool
 		if comment {
 			body := fmt.Sprintf("Claiming task %s for %s.", selected.Task.ID, selected.Lane)
 			if err := ghx.New().IssueComment(cmd.Context(), config.RepoPath(a.configPath, cfg), config.GitHubRepoArg(cfg), taskIssue(cfg, selected.Task), body); err != nil {
-				failures = append(failures, selected.Task.ID)
-				break
+				a.printf("comment failed %s: %v\n", selected.Task.ID, err)
+				commentFailures = append(commentFailures, selected.Task.ID)
+				continue
 			}
 		}
 	}
 	a.printf("prepared %d task(s)\n", prepared)
+	if len(commentFailures) > 0 {
+		a.printf("comment failed for %d prepared task(s): %s\n", len(commentFailures), strings.Join(commentFailures, ", "))
+	}
 	if len(failures) > 0 {
 		return fmt.Errorf("failed to prepare %d task(s): %s", len(failures), strings.Join(failures, ", "))
 	}
 	return nil
+}
+
+func (a *App) reserveWaveTask(store task.Store, original task.Task, lane string) (task.Task, error) {
+	var claimed task.Task
+	err := store.WithLock(func(ledger *task.Ledger) error {
+		owner, reserved := wave.ReservedLaneOwner(*ledger, lane)
+		if reserved && owner != original.ID {
+			return fmt.Errorf("lane %s is reserved by %s", lane, owner)
+		}
+		return ledger.Update(original.ID, func(item *task.Task) error {
+			if item.Status != task.StatusReady {
+				return fmt.Errorf("task %q status changed to %s", item.ID, item.Status)
+			}
+			item.AssignedAgent = lane
+			item.Status = task.StatusClaimed
+			claimed = *item
+			return nil
+		})
+	})
+	return claimed, err
+}
+
+func (a *App) rollbackWaveClaim(store task.Store, original task.Task, lane string) error {
+	return store.Update(original.ID, func(item *task.Task) error {
+		if item.Status != task.StatusClaimed || agent.SanitizeWindowName(item.AssignedAgent) != lane {
+			return nil
+		}
+		item.Status = original.Status
+		item.AssignedAgent = original.AssignedAgent
+		item.Worktree = original.Worktree
+		return nil
+	})
 }
 
 func (a *App) runWaveLaunch(cmd *cobra.Command, opts *launchOptions, limit int) error {
