@@ -169,7 +169,7 @@ func (c Client) RemoteBranchExists(ctx context.Context, dir, remote, branch stri
 	if branch == "" {
 		return false, nil
 	}
-	result, err := c.run(ctx, dir, "ls-remote", "--heads", remote, branch)
+	result, err := c.run(ctx, dir, "ls-remote", remote, "refs/heads/"+branch)
 	if err != nil {
 		return false, err
 	}
