@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/chenrui333/agent-yard/internal/agent"
@@ -94,6 +95,10 @@ func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store
 	if worktreePath == "" {
 		return fmt.Errorf("task %q has no worktree", item.ID)
 	}
+	worktreePath, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return err
+	}
 	if stat, err := os.Stat(worktreePath); err != nil {
 		return fmt.Errorf("worktree %s is not accessible: %w", worktreePath, err)
 	} else if !stat.IsDir() {
@@ -108,7 +113,10 @@ func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store
 			return fmt.Errorf("worktree %s is dirty", worktreePath)
 		}
 	}
-	promptPath := a.promptFile(kind, item.ID)
+	promptPath, err := filepath.Abs(a.promptFile(kind, item.ID))
+	if err != nil {
+		return err
+	}
 	data := prompt.Data{
 		Config:     cfg,
 		Task:       item,
@@ -159,6 +167,9 @@ func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store
 	}
 	return store.Update(item.ID, func(current *task.Task) error {
 		current.Worktree = worktreePath
+		if item.AssignedAgent != "" {
+			current.AssignedAgent = item.AssignedAgent
+		}
 		current.Status = nextStatus
 		return nil
 	})

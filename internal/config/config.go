@@ -24,6 +24,7 @@ type Config struct {
 }
 
 type GitHubConfig struct {
+	Host  string `yaml:"host,omitempty"`
 	Owner string `yaml:"owner"`
 	Repo  string `yaml:"repo"`
 	Issue int    `yaml:"issue"`
@@ -182,9 +183,26 @@ func WorktreeRootPath(configPath string, cfg Config) string {
 	return ResolvePath(configPath, cfg.Worktrees.Root)
 }
 
+func GitHubHost(cfg Config) string {
+	host := strings.TrimSpace(cfg.GitHub.Host)
+	if host == "" {
+		return "github.com"
+	}
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimRight(host, "/")
+	if host == "" {
+		return "github.com"
+	}
+	return host
+}
+
 func GitHubRepoArg(cfg Config) string {
 	if cfg.GitHub.Owner == "" || cfg.GitHub.Repo == "" {
 		return ""
+	}
+	if host := GitHubHost(cfg); host != "github.com" {
+		return host + "/" + cfg.GitHub.Owner + "/" + cfg.GitHub.Repo
 	}
 	return cfg.GitHub.Owner + "/" + cfg.GitHub.Repo
 }

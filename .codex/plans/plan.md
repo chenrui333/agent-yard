@@ -27,13 +27,15 @@
 - Use `tasks.yaml` as the editable task ledger while deriving status from git, tmux, and gh where cheap.
 - Support `--dry-run` for commands that would launch agents or mutate GitHub.
 - Keep placeholders non-crashing and explicit where full workflow automation is deferred.
+- Define the paired workset loop as the standard running model: one implementation terminal and one separate review terminal around one worktree, branch, and pull request.
+- Document that the dispatcher repeats implementation, review, follow-up, PR metadata updates, and review reruns until CI is green and no P1/P2/P3 TODO comments remain.
 
 ## Deferred Scope
 
 - No web dashboard, daemon, terminal multiplexer, TUI, SQLite database, MCP integration, or Ghostty/iTerm automation.
 - No autonomous supervisor or retry loop.
 - No full GitHub issue checkbox reconciliation beyond an MVP issue-view/sync placeholder.
-- No full temporary PR-review worktree lifecycle unless it proves safe in a later pass.
+- No automatic invocation of Codex `/review`; the review command remains a separate terminal process owned by the dispatcher.
 - No Homebrew formula yet, only package-friendly project shape.
 
 ## Risks

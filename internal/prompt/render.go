@@ -49,6 +49,9 @@ func (r Renderer) Render(kind string, data Data) (string, error) {
 	if data.Issue == 0 {
 		data.Issue = data.Task.Issue
 	}
+	if data.PRURL == "" {
+		data.PRURL = reviewURL(data.Config, data.PRNumber)
+	}
 	var out bytes.Buffer
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render %s prompt: %w", kind, err)
@@ -97,6 +100,7 @@ You are working on task {{.Task.ID}} from issue #{{.Issue}}.
 - Branch: {{.Task.Branch}}
 - Worktree: {{.Task.Worktree}}
 - Base branch: {{.BaseBranch}}
+- Remote: {{.Remote}}
 
 ## Guardrails
 
@@ -106,6 +110,25 @@ You are working on task {{.Task.ID}} from issue #{{.Issue}}.
 - Use signed-off commits if configured.
 - Prefer focused diffs.
 - Update docs and tests when relevant.
+- Keep pull requests scoped to this task and reference the issue with Refs #{{.Issue}}.
+
+## Paired Workset Loop
+
+- You are the implementation terminal for this workset.
+- A separate review terminal may inspect the same worktree or pull request.
+- Treat P1/P2/P3 review findings and TODO comments as required follow-up work.
+- Make focused follow-up commits in this worktree when review feedback is valid.
+- Do not take over the review terminal's role; report what changed and any PR title/body updates the dispatcher should make.
+
+## Project-Specific Correctness
+
+- Read the task text and linked issue carefully before changing code.
+- Verify the upstream or framework contract before wiring new behavior.
+- Use canonical identifiers and state formats expected by the target project.
+- Avoid generated name or label collisions; keep names stable and unique.
+- Add focused tests for filters, selectors, parsing, or discovery behavior when relevant.
+- Document unsupported, deleted, non-refreshable, or intentionally skipped cases instead of forcing partial support.
+- Keep shared registration, docs, and helper changes minimal so parallel task lanes do not conflict.
 
 ## Validation Examples
 
@@ -122,13 +145,28 @@ Review the assigned worktree for task {{.Task.ID}}.
 - Branch: {{.Task.Branch}}
 - Issue: #{{.Issue}}
 
+You are the review terminal for this workset. A separate implementation terminal owns code changes in the assigned worktree.
+
 Stay read-only. Do not commit, push, or rewrite files. Focus on correctness, test gaps, and scope control.
+
+Report findings first, ordered by severity, with file and line references where possible. Use P1/P2/P3 severity for actionable TODO comments. If there are no P1/P2/P3 TODO comments, say that clearly and call out any residual test gaps.
 `,
 	KindPRReview: `# PR Review: #{{.PRNumber}}
 
 Review pull request #{{.PRNumber}}.
+{{- if .PRURL }}
 
-Do not push code. Do not mutate branches. Focus on actionable correctness findings, review risk, and missing validation.
+Codex review command for this review terminal:
+
+` + "```text\n/review {{.PRURL}}\n```\n" + `{{- end }}
+
+Do not push code. Do not mutate branches. Do not rewrite commits.
+
+You are the review terminal for this workset. A separate implementation terminal owns code changes for the pull request.
+
+Focus on actionable correctness findings, review risk, missing validation, scope creep, build state, and whether the PR is merge-ready.
+
+Report P1/P2/P3 TODO comments when follow-up is required. If the build is green and there are no P1/P2/P3 TODO comments, say that clearly so the dispatcher can stop the loop.
 `,
 }
 
@@ -139,4 +177,11 @@ func DefaultTemplate(kind string) (string, bool) {
 
 func Kinds() []string {
 	return []string{KindImplement, KindLocalReview, KindPRReview}
+}
+
+func reviewURL(cfg config.Config, prNumber int) string {
+	if cfg.GitHub.Owner == "" || cfg.GitHub.Repo == "" || prNumber == 0 {
+		return ""
+	}
+	return fmt.Sprintf("https://%s/%s/%s/pull/%d", config.GitHubHost(cfg), cfg.GitHub.Owner, cfg.GitHub.Repo, prNumber)
 }

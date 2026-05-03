@@ -48,6 +48,7 @@ type Task struct {
 	Worktree      string `yaml:"worktree"`
 	Status        Status `yaml:"status"`
 	AssignedAgent string `yaml:"assigned_agent,omitempty"`
+	Note          string `yaml:"note,omitempty"`
 	PRURL         string `yaml:"pr_url"`
 	PRNumber      int    `yaml:"pr_number"`
 }
@@ -135,4 +136,12 @@ func StatusList() []Status {
 		StatusMerged,
 		StatusBlocked,
 	}
+}
+
+func ParseStatus(value string) (Status, error) {
+	status := Status(strings.TrimSpace(value))
+	if ValidStatuses[status] {
+		return status, nil
+	}
+	return "", fmt.Errorf("invalid status %q", value)
 }
