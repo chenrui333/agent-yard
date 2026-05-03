@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,12 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+)
+
+const (
+	buildTimeout   = 2 * time.Minute
+	commandTimeout = 30 * time.Second
 )
 
 func TestYardInitAndDryRunWorkflow(t *testing.T) {
@@ -133,6 +140,21 @@ func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
 	assertNotContains(t, tasksData, "assigned_agent:")
 }
 
+func TestReviewPRDryRunWithRelativeConfigUsesAbsolutePaths(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+
+	runYard(t, bin, dir, "init")
+	out := runYard(t, bin, dir, "review-pr", "123", "--dry-run", "--force")
+
+	reviewWorktree := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
+	promptPath := filepath.Join(dir, ".yard", "runs", "pr-123-pr-review-a", "pr-review.md")
+	assertContains(t, out, "worktree: "+reviewWorktree)
+	assertContains(t, out, "cd '"+reviewWorktree+"'")
+	assertContains(t, out, "< '"+promptPath+"'")
+	assertNotContains(t, out, "< '.yard/")
+}
+
 func TestYardWorktreeCreatesGitWorktree(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
@@ -237,7 +259,9 @@ func buildYard(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/yard")
+	ctx, cancel := context.WithTimeout(context.Background(), buildTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/yard")
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -260,17 +284,27 @@ func runYard(t *testing.T, bin, dir string, args ...string) string {
 }
 
 func runYardErr(bin, dir string, args ...string) (string, error) {
-	cmd := exec.Command(bin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return string(output), fmt.Errorf("yard %s: %w", strings.Join(args, " "), ctx.Err())
+	}
 	return string(output), err
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), ctx.Err(), output)
+	}
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
 	}

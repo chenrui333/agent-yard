@@ -84,7 +84,9 @@ func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger ta
 			if files, err := git.ChangedFilesSince(ctx, worktreePath, baseRef); err == nil {
 				row.ChangedFiles = strconv.Itoa(len(files))
 			}
-			if exists, err := git.RemoteBranchExists(ctx, worktreePath, cfg.DefaultRemote, item.Branch); err == nil {
+			if item.Branch == "" {
+				row.Remote = "n/a"
+			} else if exists, err := git.RemoteBranchExists(ctx, worktreePath, cfg.DefaultRemote, item.Branch); err == nil {
 				if exists {
 					row.Remote = "pushed"
 				} else {

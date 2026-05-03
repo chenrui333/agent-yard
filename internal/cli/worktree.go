@@ -66,6 +66,10 @@ func (a *App) ensureTaskWorktree(ctx context.Context, cfg config.Config, item ta
 	if worktreePath == "" {
 		return "", false, fmt.Errorf("task %q has no worktree and branch could not derive one", item.ID)
 	}
+	worktreePath, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return "", false, err
+	}
 	if stat, err := os.Stat(worktreePath); err == nil {
 		if !stat.IsDir() {
 			return "", false, fmt.Errorf("worktree path %s exists and is not a directory", worktreePath)

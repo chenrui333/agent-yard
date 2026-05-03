@@ -89,3 +89,27 @@ func TestSelectTasksAvoidsDuplicateSelectedLanes(t *testing.T) {
 		t.Fatalf("second lane reused impl-02: %#v", got)
 	}
 }
+
+func TestSelectTasksReassignsConflictingTaskLane(t *testing.T) {
+	ledger := task.Ledger{Tasks: []task.Task{
+		{ID: "running", ServiceFamily: "ec2", Status: task.StatusRunning, AssignedAgent: "impl-01"},
+		{ID: "ready", ServiceFamily: "s3", Status: task.StatusReady, AssignedAgent: "impl-01"},
+	}}
+	got := SelectTasks(ledger, Options{
+		Limit:                       1,
+		EligibleStatuses:            Eligible(task.StatusReady),
+		PreferDistinctServiceFamily: true,
+	})
+	if len(got) != 1 {
+		t.Fatalf("len = %d; want 1", len(got))
+	}
+	if got[0].Task.ID != "ready" {
+		t.Fatalf("task = %q; want ready", got[0].Task.ID)
+	}
+	if got[0].Lane != "impl-02" {
+		t.Fatalf("lane = %q; want impl-02", got[0].Lane)
+	}
+	if len(got[0].Warnings) == 0 {
+		t.Fatalf("warnings = %#v; want lane conflict warning", got[0].Warnings)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/chenrui333/agent-yard/internal/agent"
 	"github.com/chenrui333/agent-yard/internal/config"
@@ -78,12 +79,18 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 	if lane == "" {
 		return fmt.Errorf("lane is required")
 	}
-	reviewWorktree := a.prReviewWorktreePath(prNumber, lane)
+	reviewWorktree, err := filepath.Abs(a.prReviewWorktreePath(prNumber, lane))
+	if err != nil {
+		return err
+	}
 	item := prReviewTask(prNumber)
 	item.ID = fmt.Sprintf("pr-%d-%s", prNumber, lane)
 	item.Worktree = reviewWorktree
 	window := agent.ReviewWindowName("pr-review", fmt.Sprintf("%d-%s", prNumber, lane))
-	promptPath := a.promptFile(prompt.KindPRReview, item.ID)
+	promptPath, err := filepath.Abs(a.promptFile(prompt.KindPRReview, item.ID))
+	if err != nil {
+		return err
+	}
 	renderer := prompt.Renderer{Dir: a.promptDir()}
 	data := prompt.Data{Config: cfg, Task: item, PRNumber: prNumber}
 	if opts.dryRun {
@@ -95,7 +102,7 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 	}
 	launchCommand := agent.BuildLaunchCommand(reviewWorktree, promptPath, cfg.Agents.PRReview)
 	if opts.dryRun {
-		a.printf("worktree: %s\ncheckout: gh pr checkout %d --detach\nwindow: %s\ncommand: %s\n", reviewWorktree, prNumber, window, launchCommand)
+		a.printf("worktree: %s\ncheckout: %s\nwindow: %s\ncommand: %s\n", reviewWorktree, prCheckoutPreview(config.GitHubRepoArg(cfg), prNumber), window, launchCommand)
 		return nil
 	}
 	if _, err := a.ensurePRReviewWorktree(cmd.Context(), cfg, prNumber, lane, resetWorktree); err != nil {
@@ -144,7 +151,10 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 		return "", err
 	}
 	git := gitx.New()
-	reviewWorktree := a.prReviewWorktreePath(prNumber, lane)
+	reviewWorktree, err := filepath.Abs(a.prReviewWorktreePath(prNumber, lane))
+	if err != nil {
+		return "", err
+	}
 	if stat, err := os.Stat(reviewWorktree); err == nil {
 		if !stat.IsDir() {
 			return "", fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
@@ -181,4 +191,12 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 		return "", err
 	}
 	return reviewWorktree, nil
+}
+
+func prCheckoutPreview(repoArg string, prNumber int) string {
+	parts := []string{"gh", "pr", "checkout", strconv.Itoa(prNumber), "--detach"}
+	if repoArg != "" {
+		parts = append(parts, "--repo", repoArg)
+	}
+	return strings.Join(parts, " ")
 }

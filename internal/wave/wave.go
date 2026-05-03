@@ -37,13 +37,14 @@ func SelectTasks(ledger task.Ledger, opts Options) []Selection {
 		if len(selected) >= opts.Limit || selectedIDs[item.ID] || !eligible[item.Status] {
 			return false
 		}
+		var warnings []string
 		lane := strings.TrimSpace(item.AssignedAgent)
 		if lane == "" {
 			lane = nextLane(len(selected)+1, usedLanes)
 		} else if owner, used := usedLanes[lane]; used && owner != item.ID {
-			return false
+			lane = nextLane(len(selected)+1, usedLanes)
+			warnings = append(warnings, "assigned_agent lane conflict; reassigned")
 		}
-		var warnings []string
 		family := strings.TrimSpace(item.ServiceFamily)
 		if family == "" {
 			warnings = append(warnings, "missing service_family")
