@@ -21,6 +21,24 @@ For local development:
     go test ./...
     go run ./cmd/yard --help
 
+## Releases
+
+Releases are built by GoReleaser from immutable version tags:
+
+    git tag v0.1.0
+    git push origin v0.1.0
+
+The release workflow publishes tarballs for:
+
+- macOS x86_64
+- macOS arm64
+- Linux x86_64
+- Linux arm64
+
+GoReleaser is configured to keep existing release notes and artifacts for an already-published tag instead of replacing them. Create a new tag for a corrected release.
+
+Renovate is configured for dependency PRs with semantic commit titles, a two-day minimum release age, strict internal checks, and PR automerge for non-major updates.
+
 ## Required Tools
 
 - git
