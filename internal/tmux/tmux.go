@@ -68,8 +68,18 @@ func (c Client) NewWindow(ctx context.Context, session, name string) error {
 	return err
 }
 
+func (c Client) KillWindow(ctx context.Context, target string) error {
+	_, err := c.run(ctx, "kill-window", "-t", target)
+	return err
+}
+
 func (c Client) SendKeys(ctx context.Context, target, command string) error {
 	_, err := c.run(ctx, "send-keys", "-t", target, command, "C-m")
+	return err
+}
+
+func (c Client) RespawnPane(ctx context.Context, target, command string) error {
+	_, err := c.run(ctx, "respawn-pane", "-k", "-t", target, command)
 	return err
 }
 

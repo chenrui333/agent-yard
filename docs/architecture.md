@@ -69,3 +69,5 @@ This keeps yard generic while still allowing richer memory support in environmen
 9. Commander records a structured review result and runs `yard ready <task-id> --review-lane <lane> --write`.
 
 The loop stops only when local state, PR state, CI/review state, and reviewer output all agree that the task is merge-ready.
+
+Existing tmux windows are treated as live state. Reuse requires `--reuse-idle` for an idle shell or dead pane, and replacement requires `--replace-window`; `--force` does not paste commands into active windows.

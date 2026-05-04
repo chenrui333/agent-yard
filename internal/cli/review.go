@@ -30,7 +30,8 @@ func (a *App) newReviewLocalCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print the review command without launching")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "reuse an existing review window")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if the task worktree is dirty")
+	addWindowReuseFlags(cmd, opts)
 	return cmd
 }
 
@@ -51,7 +52,8 @@ func (a *App) newReviewPRCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print the review command without launching")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "reuse an existing review window")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "deprecated compatibility flag; use --reuse-idle or --replace-window for existing windows")
+	addWindowReuseFlags(cmd, opts)
 	cmd.Flags().StringVar(&lane, "lane", lane, "review lane name")
 	cmd.Flags().BoolVar(&resetWorktree, "reset-worktree", false, "reset a dirty isolated review worktree before checkout")
 	return cmd
@@ -87,7 +89,11 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 	item.ID = fmt.Sprintf("pr-%d-%s", prNumber, lane)
 	item.Worktree = reviewWorktree
 	window := agent.ReviewWindowName("pr-review", fmt.Sprintf("%d-%s", prNumber, lane))
-	promptPath, err := filepath.Abs(a.promptFile(prompt.KindPRReview, item.ID))
+	promptFile, err := a.promptFile(prompt.KindPRReview, item.ID)
+	if err != nil {
+		return err
+	}
+	promptPath, err := filepath.Abs(promptFile)
 	if err != nil {
 		return err
 	}
@@ -114,12 +120,9 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 	if err := tmuxClient.EnsureSession(ctx, cfg.Session); err != nil {
 		return err
 	}
-	exists, err := tmuxClient.WindowExists(ctx, cfg.Session, window)
+	windowPlan, err := planTmuxWindow(ctx, tmuxClient, cfg.Session, window, opts)
 	if err != nil {
 		return err
-	}
-	if exists && !opts.force {
-		return fmt.Errorf("tmux window %s already exists", window)
 	}
 	if err := renderer.RenderToFile(prompt.KindPRReview, data, promptPath); err != nil {
 		return err
@@ -127,12 +130,7 @@ func (a *App) runReviewPR(cmd *cobra.Command, prNumber int, lane string, resetWo
 	if _, err := a.ensurePRReviewWorktree(ctx, cfg, prNumber, lane, resetWorktree); err != nil {
 		return err
 	}
-	if !exists {
-		if err := tmuxClient.NewWindow(ctx, cfg.Session, window); err != nil {
-			return err
-		}
-	}
-	return tmuxClient.SendKeys(ctx, tmux.Target(cfg.Session, window), launchCommand)
+	return executeTmuxWindowPlan(ctx, tmuxClient, windowPlan, launchCommand)
 }
 
 func (a *App) prReviewWorktreePath(prNumber int, lane string) string {

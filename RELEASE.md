@@ -27,8 +27,8 @@ If `actionlint` is not installed locally, install it or verify the workflow synt
 
 Create a signed or annotated tag from the verified commit:
 
-    git tag -a v0.0.2 -m "v0.0.2"
-    git push origin v0.0.2
+    git tag -a v0.0.3 -m "v0.0.3"
+    git push origin v0.0.3
 
 The `Release` workflow runs GoReleaser on pushed `v*` tags. GoReleaser is configured not to replace existing release artifacts. If a release needs correction, create a new version tag.
 
