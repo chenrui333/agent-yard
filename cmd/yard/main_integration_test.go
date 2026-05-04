@@ -309,6 +309,7 @@ if [ "$1" = "has-session" ]; then
 fi
 if [ "$1" = "list-windows" ]; then
   echo impl-01
+  echo local-review-feature
   echo pr-review-123-pr-review-a
   echo manual
   exit 0
@@ -361,6 +362,12 @@ agents:
 	assertContains(t, lanesOut, "impl-01")
 	assertContains(t, lanesOut, "feature")
 	assertContains(t, lanesOut, "running codex")
+	assertContains(t, lanesOut, "local-review-feature")
+	for _, line := range strings.Split(lanesOut, "\n") {
+		if strings.HasPrefix(line, "local-review-feature") && !strings.Contains(line, "feature") {
+			t.Fatalf("local review lane should map to feature task, got line: %q\nfull output:\n%s", line, lanesOut)
+		}
+	}
 	assertContains(t, lanesOut, "pr-review-123-pr-review-a")
 	for _, line := range strings.Split(lanesOut, "\n") {
 		if strings.HasPrefix(line, "pr-review-123-pr-review-a") && !strings.Contains(line, "feature") {
@@ -1498,7 +1505,7 @@ recorded_at: "2026-01-01T00:00:00Z"
 	runGit(t, repo, "push", "origin", "feature-task")
 	taskHead := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
 
-	recordOut, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--summary", "reviewed old head")
+	recordOut, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-123-pr-review-a", "--summary", "reviewed old head")
 	if err != nil {
 		t.Fatalf("review-result feature after worker push: %v\n%s", err, recordOut)
 	}

@@ -141,7 +141,7 @@ func (a *App) runLanes(cmd *cobra.Command, session string) error {
 		}
 		items := owners[window]
 		if len(items) == 0 {
-			items = prReviewWindowOwners(ledger, window)
+			items = reviewWindowOwners(ledger, window)
 		}
 		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", window, ownerIDs(items), ownerStatuses(items), pane); err != nil {
 			return err
@@ -168,6 +168,23 @@ func laneOwners(ledger task.Ledger) map[string][]task.Task {
 	owners := map[string][]task.Task{}
 	for _, item := range ledger.Tasks {
 		owners[agent.TaskWindowName(item)] = append(owners[agent.TaskWindowName(item)], item)
+	}
+	return owners
+}
+
+func reviewWindowOwners(ledger task.Ledger, window string) []task.Task {
+	if owners := localReviewWindowOwners(ledger, window); len(owners) > 0 {
+		return owners
+	}
+	return prReviewWindowOwners(ledger, window)
+}
+
+func localReviewWindowOwners(ledger task.Ledger, window string) []task.Task {
+	var owners []task.Task
+	for _, item := range ledger.Tasks {
+		if agent.ReviewWindowName("local-review", item.ID) == window {
+			owners = append(owners, item)
+		}
 	}
 	return owners
 }

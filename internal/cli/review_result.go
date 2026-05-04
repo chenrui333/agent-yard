@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chenrui333/agent-yard/internal/agent"
 	"github.com/chenrui333/agent-yard/internal/config"
 	"github.com/chenrui333/agent-yard/internal/gitx"
 	"github.com/chenrui333/agent-yard/internal/task"
@@ -108,7 +109,7 @@ func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewRes
 
 func (a *App) reviewResultHead(ctx context.Context, cfg config.Config, item task.Task, prNumber int, lane string) (string, error) {
 	git := gitx.New()
-	reviewWorktree, err := filepath.Abs(a.prReviewWorktreePath(prNumber, lane))
+	reviewWorktree, err := filepath.Abs(a.prReviewWorktreePath(prNumber, prReviewLaneName(prNumber, lane)))
 	if err != nil {
 		return "", err
 	}
@@ -149,6 +150,15 @@ func (a *App) reviewResultHead(ctx context.Context, cfg config.Config, item task
 		return "", fmt.Errorf("resolve task HEAD in %s: %w", worktreePath, err)
 	}
 	return head, nil
+}
+
+func prReviewLaneName(prNumber int, lane string) string {
+	lane = agent.SanitizeWindowName(lane)
+	prefix := fmt.Sprintf("pr-review-%d-", prNumber)
+	if strings.HasPrefix(lane, prefix) {
+		lane = strings.TrimPrefix(lane, prefix)
+	}
+	return lane
 }
 
 func normalizeReviewResultStatus(value string) (string, error) {
