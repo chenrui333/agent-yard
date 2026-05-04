@@ -1430,6 +1430,28 @@ recorded_at: "2026-01-01T00:00:00Z"
 		t.Fatalf("ready should fail when structured review result records blocking priorities\n%s", out)
 	}
 	assertContains(t, out, "structured review result has blocking priorities P2")
+
+	writeFile(t, resultFile, fmt.Sprintf(`pr_number: 123
+task_id: feature
+lane: pr-review-123-pr-review-a
+head: %s
+status: clear
+recorded_at: "2026-01-01T00:00:00Z"
+`, head))
+	pushRepo := filepath.Join(dir, "push-repo")
+	runGit(t, dir, "clone", "--branch", "feature-task", origin, pushRepo)
+	runGit(t, pushRepo, "config", "user.name", "Yard Test")
+	runGit(t, pushRepo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(pushRepo, "later.txt"), "later\n")
+	runGit(t, pushRepo, "add", "later.txt")
+	runGit(t, pushRepo, "commit", "-m", "later")
+	runGit(t, pushRepo, "push", "origin", "feature-task")
+
+	out, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a")
+	if err == nil {
+		t.Fatalf("ready should fail when structured review result is stale for remote PR head\n%s", out)
+	}
+	assertContains(t, out, "review result is stale for current PR HEAD")
 }
 
 func TestReadyFailsWhenLocalHeadIsUnpushed(t *testing.T) {

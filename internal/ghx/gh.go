@@ -32,6 +32,7 @@ type PullRequest struct {
 	URL               string        `json:"url"`
 	State             string        `json:"state"`
 	HeadRefName       string        `json:"headRefName"`
+	HeadRefOid        string        `json:"headRefOid"`
 	BaseRefName       string        `json:"baseRefName"`
 	HeadRepository    Repository    `json:"headRepository"`
 	HeadRepoOwner     RepoOwner     `json:"headRepositoryOwner"`
@@ -147,7 +148,7 @@ func (c Client) PRView(ctx context.Context, dir, repoArg string, pr int) (PullRe
 	return ParsePRView(result.Stdout)
 }
 
-const prJSONFields = "number,title,url,state,headRefName,baseRefName,headRepository,headRepositoryOwner,isCrossRepository,mergeStateStatus,reviewDecision,statusCheckRollup"
+const prJSONFields = "number,title,url,state,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,isCrossRepository,mergeStateStatus,reviewDecision,statusCheckRollup"
 
 func (c Client) PRForBranch(ctx context.Context, dir, repoArg, branch, base string) (PullRequest, bool, error) {
 	if branch == "" {

@@ -151,7 +151,12 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 	if prOK {
 		addPRReadyChecks(pr, add)
 		if opts.reviewLane != "" {
-			a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, localWorktree, add)
+			reviewHead, err := readyPRHead(ctx, git, repoPath, cfg, item, pr, fetchRemote)
+			if err != nil {
+				add("review lane", "fail", "resolve PR head: "+err.Error())
+			} else {
+				a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, reviewHead, localWorktree, add)
+			}
 		} else if opts.write {
 			add("review lane", "fail", "--review-lane is required with --write")
 		} else {
@@ -211,6 +216,19 @@ func (a *App) readyPullRequest(ctx context.Context, cfg config.Config, item task
 	return pr, true
 }
 
+func readyPRHead(ctx context.Context, git gitx.Client, repoPath string, cfg config.Config, item task.Task, pr ghx.PullRequest, fetchRemote func() error) (string, error) {
+	if head := strings.TrimSpace(pr.HeadRefOid); head != "" {
+		return head, nil
+	}
+	if item.Branch == "" {
+		return "", nil
+	}
+	if err := fetchRemote(); err != nil {
+		return "", err
+	}
+	return git.RevParse(ctx, repoPath, cfg.DefaultRemote+"/"+item.Branch)
+}
+
 func addPRReadyChecks(pr ghx.PullRequest, add func(string, string, string)) {
 	if pr.State != "" && pr.State != "OPEN" {
 		add("pr state", "fail", pr.State)
@@ -241,7 +259,7 @@ func addPRReadyChecks(pr ghx.PullRequest, add func(string, string, string)) {
 	add("checks", "pass", fmt.Sprintf("%d check(s)", len(pr.StatusCheckRollup)))
 }
 
-func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, prNumber int, lane, worktree string, add func(string, string, string)) {
+func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, prNumber int, lane, reviewHead, worktree string, add func(string, string, string)) {
 	window := reviewLaneWindow(prNumber, lane)
 	if result, ok, err := a.loadReviewResult(prNumber, lane); err != nil {
 		add("review lane", "fail", err.Error())
@@ -255,7 +273,12 @@ func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, pr
 			add("review lane", "fail", fmt.Sprintf("review result lane %q, want %q", result.Lane, window))
 			return
 		}
-		if result.Head != "" && worktree != "" {
+		if result.Head != "" && reviewHead != "" {
+			if result.Head != reviewHead {
+				add("review lane", "fail", "review result is stale for current PR HEAD")
+				return
+			}
+		} else if result.Head != "" && worktree != "" {
 			head, err := gitx.New().RevParse(ctx, worktree, "HEAD")
 			if err != nil {
 				add("review lane", "fail", err.Error())

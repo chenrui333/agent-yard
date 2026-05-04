@@ -9,11 +9,11 @@ import (
 )
 
 func TestParsePRView(t *testing.T) {
-	pr, err := ParsePRView(`{"number":42,"title":"feat: add thing","url":"https://github.com/o/r/pull/42","state":"OPEN","headRefName":"feature","baseRefName":"main","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]}`)
+	pr, err := ParsePRView(`{"number":42,"title":"feat: add thing","url":"https://github.com/o/r/pull/42","state":"OPEN","headRefName":"feature","headRefOid":"abc123","baseRefName":"main","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]}`)
 	if err != nil {
 		t.Fatalf("ParsePRView returned error: %v", err)
 	}
-	if pr.Number != 42 || pr.HeadRefName != "feature" || pr.ReviewDecision != "APPROVED" {
+	if pr.Number != 42 || pr.HeadRefName != "feature" || pr.HeadRefOid != "abc123" || pr.ReviewDecision != "APPROVED" {
 		t.Fatalf("parsed PR = %#v", pr)
 	}
 	if len(pr.StatusCheckRollup) != 1 || pr.StatusCheckRollup[0].Conclusion != "SUCCESS" {
