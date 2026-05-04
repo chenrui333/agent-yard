@@ -38,7 +38,7 @@ func (a *App) runGC(cmd *cobra.Command, prune, merged, force bool) error {
 		}
 		return a.pruneMergedGC(cmd, force)
 	}
-	for _, dir := range []string{a.yardPath("runs"), a.yardPath("reviews")} {
+	for _, dir := range []string{a.yardPath("runs"), a.yardPath("reviews"), a.yardPath("review-results")} {
 		entries, err := os.ReadDir(dir)
 		if os.IsNotExist(err) {
 			a.printf("missing %s\n", dir)
@@ -94,6 +94,9 @@ func (a *App) pruneMergedGC(cmd *cobra.Command, force bool) error {
 	if err := a.pruneMergedReviewWorktrees(cmd, cfg, mergedPRs, force, &removed); err != nil {
 		return err
 	}
+	if err := a.pruneMergedReviewResults(mergedPRs, &removed); err != nil {
+		return err
+	}
 	a.printf("removed %d candidate(s)\n", removed)
 	return nil
 }
@@ -139,11 +142,54 @@ func (a *App) pruneMergedReviewWorktrees(cmd *cobra.Command, cfg config.Config, 
 	return nil
 }
 
+func (a *App) pruneMergedReviewResults(mergedPRs map[int]bool, removed *int) error {
+	if len(mergedPRs) == 0 {
+		return nil
+	}
+	resultsDir := a.yardPath("review-results")
+	entries, err := os.ReadDir(resultsDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", resultsDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		prNumber := reviewResultPRNumber(entry.Name())
+		if prNumber == 0 || !mergedPRs[prNumber] {
+			continue
+		}
+		path, err := safeYardChild(resultsDir, entry.Name())
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove %s: %w", path, err)
+		}
+		a.printf("removed %s\n", path)
+		*removed = *removed + 1
+	}
+	return nil
+}
+
 func reviewDirPRNumber(name string) int {
 	if !strings.HasPrefix(name, "pr-") {
 		return 0
 	}
 	rest := strings.TrimPrefix(name, "pr-")
+	value, _, _ := strings.Cut(rest, "-")
+	number, _ := strconv.Atoi(value)
+	return number
+}
+
+func reviewResultPRNumber(name string) int {
+	if !strings.HasPrefix(name, "pr-review-") || !strings.HasSuffix(name, ".yaml") {
+		return 0
+	}
+	rest := strings.TrimSuffix(strings.TrimPrefix(name, "pr-review-"), ".yaml")
 	value, _, _ := strings.Cut(rest, "-")
 	number, _ := strconv.Atoi(value)
 	return number

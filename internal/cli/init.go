@@ -28,6 +28,9 @@ func (a *App) runInit() error {
 	if err := os.MkdirAll(a.yardPath("reviews"), 0o755); err != nil {
 		return fmt.Errorf("create .yard/reviews: %w", err)
 	}
+	if err := os.MkdirAll(a.yardPath("review-results"), 0o755); err != nil {
+		return fmt.Errorf("create .yard/review-results: %w", err)
+	}
 	if err := os.MkdirAll(a.promptDir(), 0o755); err != nil {
 		return fmt.Errorf("create prompts dir: %w", err)
 	}

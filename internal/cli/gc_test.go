@@ -40,3 +40,13 @@ func TestSafeYardChildRejectsTraversal(t *testing.T) {
 		t.Fatalf("safeYardChild = %q; want %q", got, want)
 	}
 }
+func TestReviewResultPRNumber(t *testing.T) {
+	if got := reviewResultPRNumber("pr-review-123-pr-review-a.yaml"); got != 123 {
+		t.Fatalf("reviewResultPRNumber = %d; want 123", got)
+	}
+	for _, name := range []string{"pr-123-pr-review-a", "pr-review-not-number.yaml", "pr-review-0-x.yaml", "nested/pr-review-123.yaml"} {
+		if got := reviewResultPRNumber(name); got != 0 {
+			t.Fatalf("reviewResultPRNumber(%q) = %d; want 0", name, got)
+		}
+	}
+}

@@ -26,11 +26,13 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	for _, path := range []string{
 		configPath,
 		filepath.Join(dir, "tasks.yaml"),
+		filepath.Join(dir, "prompts", "commander.md"),
 		filepath.Join(dir, "prompts", "implement.md"),
 		filepath.Join(dir, "prompts", "local-review.md"),
 		filepath.Join(dir, "prompts", "pr-review.md"),
 		filepath.Join(dir, ".yard", "runs"),
 		filepath.Join(dir, ".yard", "reviews"),
+		filepath.Join(dir, ".yard", "review-results"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected %s to exist: %v", path, err)
@@ -61,6 +63,10 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	boardOut := runYard(t, bin, dir, "--config", configPath, "board")
 	assertContains(t, boardOut, "aws-route53")
 	assertContains(t, boardOut, "ready")
+
+	commanderOut := runYard(t, bin, dir, "--config", configPath, "commander", "--goal", "finish test wave", "--dry-run", "--force")
+	assertContains(t, commanderOut, "window: commander")
+	assertContains(t, commanderOut, "commander.md")
 
 	launchOut := runYard(t, bin, dir, "--config", configPath, "launch", "aws-route53", "--dry-run", "--force")
 	assertContains(t, launchOut, "window: impl-01")
@@ -199,24 +205,29 @@ func TestBoardSkipsRemoteBranchProbe(t *testing.T) {
 	binDir := filepath.Join(dir, "bin")
 	configPath := filepath.Join(dir, "yard.yaml")
 	worktree := filepath.Join(dir, "worktree")
-	marker := filepath.Join(dir, "show-ref-called")
+	gitMarker := filepath.Join(dir, "git-called")
+	ghMarker := filepath.Join(dir, "gh-called")
 
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("create worktree: %v", err)
 	}
-	gitScript := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"show-ref\" ]; then\n  echo called > %q\n  exit 0\nfi\nif [ \"$1\" = \"rev-list\" ]; then\n  echo '0 0'\n  exit 0\nfi\nif [ \"$1\" = \"merge-base\" ]; then\n  echo abc\n  exit 0\nfi\nexit 0\n", marker)
+	gitScript := fmt.Sprintf("#!/bin/sh\necho called > %q\nif [ \"$1\" = \"show-ref\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"rev-list\" ]; then\n  echo '0 0'\n  exit 0\nfi\nif [ \"$1\" = \"merge-base\" ]; then\n  echo abc\n  exit 0\nfi\nexit 0\n", gitMarker)
 	writeExecutable(t, filepath.Join(binDir, "git"), gitScript)
+	writeExecutable(t, filepath.Join(binDir, "gh"), fmt.Sprintf("#!/bin/sh\necho called > %q\necho '{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"mergeStateStatus\":\"CLEAN\",\"reviewDecision\":\"APPROVED\"}'\n", ghMarker))
 	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nexit 0\n")
 	writeFile(t, configPath, "repo: \".\"\nbase_branch: main\ndefault_remote: origin\nsession: yard-test\nagents:\n  implementation:\n    command: codex\n  local_review:\n    command: codex\n  pr_review:\n    command: codex\n")
-	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf("tasks:\n  - id: remote-check\n    issue: 338\n    checkbox: Remote check\n    service_family: s3\n    branch: remote-check\n    worktree: %q\n    status: worktree_created\n    pr_url: \"\"\n    pr_number: 0\n", worktree))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf("tasks:\n  - id: remote-check\n    issue: 338\n    checkbox: Remote check\n    service_family: s3\n    branch: remote-check\n    worktree: %q\n    status: worktree_created\n    pr_url: \"https://github.com/o/r/pull/123\"\n    pr_number: 123\n", worktree))
 
 	boardOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "board")
 	if err != nil {
 		t.Fatalf("board should not require remote branch probe: %v\noutput:\n%s", err, boardOut)
 	}
 	assertContains(t, boardOut, "remote-check")
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("board should not probe remote branch refs, stat error: %v", err)
+	if _, err := os.Stat(gitMarker); !os.IsNotExist(err) {
+		t.Fatalf("board should not run git probes, stat error: %v", err)
+	}
+	if _, err := os.Stat(ghMarker); !os.IsNotExist(err) {
+		t.Fatalf("board should not run GitHub PR probes, stat error: %v", err)
 	}
 
 	statusOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "status")
@@ -224,9 +235,151 @@ func TestBoardSkipsRemoteBranchProbe(t *testing.T) {
 		t.Fatalf("status should use local remote-tracking ref: %v\noutput:\n%s", err, statusOut)
 	}
 	assertContains(t, statusOut, "pushed")
-	if _, err := os.Stat(marker); err != nil {
+	if _, err := os.Stat(gitMarker); err != nil {
 		t.Fatalf("status should probe local remote-tracking ref, stat error: %v", err)
 	}
+	if _, err := os.Stat(ghMarker); err != nil {
+		t.Fatalf("status should probe PR details, stat error: %v", err)
+	}
+}
+
+func TestStatusReportsMissingTmuxWhenSessionMissing(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "tmux"), `#!/bin/sh
+if [ "$1" = "list-windows" ]; then
+  exit 1
+fi
+if [ "$1" = "has-session" ]; then
+  exit 1
+fi
+exit 0
+`)
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: missing-lane
+    issue: 338
+    checkbox: Missing lane
+    service_family: s3
+    branch: missing-lane
+    worktree: %q
+    status: running
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
+`, worktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "board")
+	if err != nil {
+		t.Fatalf("board should render missing tmux lanes when session is absent: %v\n%s", err, out)
+	}
+	assertContains(t, out, "missing-lane")
+	assertContains(t, out, "missing")
+}
+
+func TestCaptureTailAndLanes(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	tmuxLog := filepath.Join(dir, "tmux.log")
+
+	writeExecutable(t, filepath.Join(binDir, "tmux"), fmt.Sprintf(`#!/bin/sh
+echo "$@" >> %q
+if [ "$1" = "has-session" ]; then
+  exit 0
+fi
+if [ "$1" = "list-windows" ]; then
+  echo impl-01
+  echo local-review-feature
+  echo pr-review-123-pr-review-a
+  echo manual
+  exit 0
+fi
+if [ "$1" = "list-panes" ]; then
+  printf '%%%%1\tcodex\t0\t\n'
+  exit 0
+fi
+if [ "$1" = "capture-pane" ]; then
+  echo tail-output
+  exit 0
+fi
+exit 0
+`, tmuxLog))
+	writeFile(t, configPath, `repo: "."
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), `tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature
+    worktree: ""
+    status: running
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 123
+`)
+
+	captureOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "capture", "feature", "--tail", "80")
+	if err != nil {
+		t.Fatalf("capture tail: %v\n%s", err, captureOut)
+	}
+	assertContains(t, captureOut, "tail-output")
+	tmuxData := readFile(t, tmuxLog)
+	assertContains(t, tmuxData, "capture-pane -p -S -80 -t yard-test:impl-01")
+
+	lanesOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "lanes")
+	if err != nil {
+		t.Fatalf("lanes: %v\n%s", err, lanesOut)
+	}
+	assertContains(t, lanesOut, "impl-01")
+	assertContains(t, lanesOut, "feature")
+	assertContains(t, lanesOut, "running codex")
+	assertContains(t, lanesOut, "local-review-feature")
+	assertLaneOwner(t, lanesOut, "local-review-feature", "feature", "running")
+	assertContains(t, lanesOut, "pr-review-123-pr-review-a")
+	assertLaneOwner(t, lanesOut, "pr-review-123-pr-review-a", "feature", "running")
+	assertContains(t, lanesOut, "manual")
+
+	argsOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "lanes", "typo")
+	if err == nil {
+		t.Fatalf("lanes should reject stray args\n%s", argsOut)
+	}
+	assertContains(t, argsOut, "unknown command")
+
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then\n  exit 1\nfi\nexit 0\n")
+	missingOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "lanes")
+	if err == nil {
+		t.Fatalf("lanes should fail when tmux session is missing\n%s", missingOut)
+	}
+	assertContains(t, missingOut, `tmux session "yard-test" not found`)
 }
 
 func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
@@ -461,6 +614,40 @@ func TestReviewPRRejectsPlainDirectoryInsideParentRepo(t *testing.T) {
 	assertContains(t, out, reviewDir)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("gh should not be called for non-worktree review dir, stat error: %v", err)
+	}
+}
+
+func TestReviewPRRejectsSymlinkedReviewWorktree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	marker := filepath.Join(dir, "gh-called")
+	reviewDir := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
+
+	runGit(t, dir, "init", dir)
+	if err := os.MkdirAll(filepath.Dir(reviewDir), 0o755); err != nil {
+		t.Fatalf("create review parent: %v", err)
+	}
+	if err := os.Symlink(dir, reviewDir); err != nil {
+		t.Fatalf("create symlinked review worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"list-windows\" ]; then\n  exit 0\nfi\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
+	writeExecutable(t, filepath.Join(binDir, "gh"), fmt.Sprintf("#!/bin/sh\necho called >> %q\nexit 0\n", marker))
+	writeFile(t, configPath, "repo: \".\"\nbase_branch: main\ndefault_remote: origin\nsession: yard-test\nagents:\n  implementation:\n    command: codex\n  local_review:\n    command: codex\n  pr_review:\n    command: codex\n")
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-pr", "123", "--reset-worktree")
+	if err == nil {
+		t.Fatalf("expected symlinked review worktree rejection; output: %s", out)
+	}
+	assertContains(t, out, "must not be a symlink")
+	assertContains(t, out, reviewDir)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("gh should not be called for symlinked review worktree, stat error: %v", err)
 	}
 }
 
@@ -1247,6 +1434,143 @@ agents:
 	assertContains(t, tasksData, "status: merge_ready")
 }
 
+func TestReadyUsesStructuredReviewResultBeforeTmuxCapture(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	origin := filepath.Join(dir, "origin.git")
+	repo := filepath.Join(dir, "repo")
+	configPath := filepath.Join(dir, "yard.yaml")
+	tmuxMarker := filepath.Join(dir, "tmux-called")
+
+	runGit(t, dir, "init", "--bare", origin)
+	runGit(t, dir, "init", repo)
+	runGit(t, repo, "config", "user.name", "Yard Test")
+	runGit(t, repo, "config", "user.email", "yard@example.com")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "branch", "-M", "main")
+	runGit(t, repo, "remote", "add", "origin", origin)
+	runGit(t, repo, "push", "-u", "origin", "main")
+	runGit(t, repo, "checkout", "-b", "feature-task")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+	runGit(t, repo, "push", "-u", "origin", "feature-task")
+
+	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "{\"number\":123,\"url\":\"https://github.com/o/r/pull/123\",\"state\":\"OPEN\",\"headRefName\":\"feature-task\",\"baseRefName\":\"main\",\"mergeStateStatus\":\"CLEAN\",\"reviewDecision\":\"APPROVED\",\"statusCheckRollup\":[{\"name\":\"test\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(binDir, "tmux"), fmt.Sprintf("#!/bin/sh\necho called > %q\nexit 1\n", tmuxMarker))
+	writeFile(t, configPath, fmt.Sprintf(`repo: %q
+base_branch: main
+default_remote: origin
+session: yard-test
+github:
+  owner: o
+  repo: r
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`, repo))
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: feature
+    issue: 338
+    checkbox: Feature task
+    service_family: feature
+    branch: feature-task
+    worktree: %q
+    status: pr_opened
+    pr_url: "https://github.com/o/r/pull/123"
+    pr_number: 123
+`, repo))
+
+	rejectOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--priority", "[P2]")
+	if err == nil {
+		t.Fatalf("review-result with clear status and priority should fail\n%s", rejectOut)
+	}
+	assertContains(t, rejectOut, "cannot include blocking priorities P2")
+
+	recordOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--summary", "clear")
+	if err != nil {
+		t.Fatalf("review-result feature: %v\n%s", err, recordOut)
+	}
+	assertContains(t, recordOut, "recorded review result:")
+	resultFile := filepath.Join(dir, ".yard", "review-results", "pr-review-123-pr-review-a.yaml")
+	resultData := readFile(t, resultFile)
+	assertContains(t, resultData, "status: clear")
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a", "--write")
+	if err != nil {
+		t.Fatalf("ready feature: %v\n%s", err, out)
+	}
+	assertContains(t, out, "review lane")
+	assertContains(t, out, "clear")
+	if _, err := os.Stat(tmuxMarker); !os.IsNotExist(err) {
+		t.Fatalf("ready should not capture tmux when structured review result exists, stat error: %v", err)
+	}
+
+	head := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+	writeFile(t, resultFile, fmt.Sprintf(`pr_number: 123
+task_id: feature
+lane: pr-review-123-pr-review-a
+head: %s
+status: clear
+priorities:
+  - P2
+recorded_at: "2026-01-01T00:00:00Z"
+`, head))
+	out, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a")
+	if err == nil {
+		t.Fatalf("ready should fail when structured review result records blocking priorities\n%s", out)
+	}
+	assertContains(t, out, "structured review result has blocking priorities P2")
+
+	reviewWorktree := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
+	runGit(t, repo, "worktree", "add", "--detach", reviewWorktree, "HEAD")
+	writeFile(t, filepath.Join(repo, "later.txt"), "later\n")
+	runGit(t, repo, "add", "later.txt")
+	runGit(t, repo, "commit", "-m", "later")
+	runGit(t, repo, "push", "origin", "feature-task")
+	taskHead := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	dirtyReviewFile := filepath.Join(reviewWorktree, "local-only.txt")
+	writeFile(t, dirtyReviewFile, "local-only\n")
+	dirtyOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-123-pr-review-a", "--summary", "dirty review")
+	if err == nil {
+		t.Fatalf("review-result should reject dirty review worktree\n%s", dirtyOut)
+	}
+	assertContains(t, dirtyOut, "review worktree")
+	assertContains(t, dirtyOut, "is dirty")
+	if err := os.Remove(dirtyReviewFile); err != nil {
+		t.Fatalf("clean dirty review file: %v", err)
+	}
+
+	recordOut, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-123-pr-review-a", "--summary", "reviewed old head")
+	if err != nil {
+		t.Fatalf("review-result feature after worker push: %v\n%s", err, recordOut)
+	}
+	resultData = readFile(t, resultFile)
+	assertContains(t, resultData, "head: "+head)
+	assertNotContains(t, resultData, "head: "+taskHead)
+
+	out, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a")
+	if err == nil {
+		t.Fatalf("ready should fail when structured review result is stale for remote PR head\n%s", out)
+	}
+	assertContains(t, out, "review result is stale for current PR HEAD")
+}
+
 func TestReadyFailsWhenLocalHeadIsUnpushed(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
@@ -1390,6 +1714,7 @@ func TestGCPruneMergedRemovesRunStateAndReviewWorktree(t *testing.T) {
 	configPath := filepath.Join(dir, "yard.yaml")
 	reviewDir := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
 	runDir := filepath.Join(dir, ".yard", "runs", "feature")
+	resultFile := filepath.Join(dir, ".yard", "review-results", "pr-review-123-pr-review-a.yaml")
 
 	writeExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
 if [ "$1" = "status" ]; then
@@ -1404,6 +1729,7 @@ exit 1
 `)
 	writeFile(t, filepath.Join(runDir, "implement.md"), "prompt\n")
 	writeFile(t, filepath.Join(reviewDir, ".git"), "gitdir: fake\n")
+	writeFile(t, resultFile, "status: clear\n")
 	writeFile(t, configPath, `repo: "."
 agents:
   implementation:
@@ -1429,12 +1755,15 @@ agents:
 	if err != nil {
 		t.Fatalf("gc prune: %v\n%s", err, out)
 	}
-	assertContains(t, out, "removed 2 candidate(s)")
+	assertContains(t, out, "removed 3 candidate(s)")
 	if _, err := os.Stat(runDir); !os.IsNotExist(err) {
 		t.Fatalf("run dir should be removed, stat err: %v", err)
 	}
 	if _, err := os.Stat(reviewDir); !os.IsNotExist(err) {
 		t.Fatalf("review dir should be removed, stat err: %v", err)
+	}
+	if _, err := os.Stat(resultFile); !os.IsNotExist(err) {
+		t.Fatalf("review result should be removed, stat err: %v", err)
 	}
 }
 
@@ -1545,4 +1874,18 @@ func assertNotContains(t *testing.T, got, want string) {
 	if strings.Contains(got, want) {
 		t.Fatalf("expected output not to contain %q\noutput:\n%s", want, got)
 	}
+}
+
+func assertLaneOwner(t *testing.T, output, window, taskID, status string) {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == window {
+			if fields[1] != taskID || fields[2] != status {
+				t.Fatalf("lane %s owner = %s/%s; want %s/%s\nline: %q\noutput:\n%s", window, fields[1], fields[2], taskID, status, line, output)
+			}
+			return
+		}
+	}
+	t.Fatalf("lane %s not found\noutput:\n%s", window, output)
 }

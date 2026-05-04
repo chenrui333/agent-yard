@@ -34,11 +34,14 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	cmd.SetErr(errOut)
 	cmd.AddCommand(
 		app.newInitCmd(),
+		app.newCommanderCmd(),
 		app.newStatusCmd(),
 		app.newBoardCmd(),
+		app.newShowCmd(),
 		app.newDoctorCmd(),
 		app.newAttachCmd(),
 		app.newCaptureCmd(),
+		app.newLanesCmd(),
 		app.newWorktreeCmd(),
 		app.newLaunchCmd(),
 		app.newLaunchWaveCmd(),
@@ -47,6 +50,7 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 		app.newReadyCmd(),
 		app.newReviewLocalCmd(),
 		app.newReviewPRCmd(),
+		app.newReviewResultCmd(),
 		app.newSyncCmd(),
 		app.newClaimCmd(),
 		app.newSetStatusCmd(),

@@ -25,6 +25,38 @@ func TestHasReviewPriorityFindingsIgnoresClearPassMessage(t *testing.T) {
 	}
 }
 
+func TestBlockingReviewPriorities(t *testing.T) {
+	got := blockingReviewPriorities([]string{"[p2]", "P4", "P1", "P2", "note", "(p3)"})
+	want := []string{"P2", "P1", "P3"}
+	if len(got) != len(want) {
+		t.Fatalf("blockingReviewPriorities length = %d; want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("blockingReviewPriorities[%d] = %q; want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestNormalizeReviewPriorities(t *testing.T) {
+	got, err := normalizeReviewPriorities([]string{"[p2]", "P1", "(p3)", "p2"})
+	if err != nil {
+		t.Fatalf("normalizeReviewPriorities returned error: %v", err)
+	}
+	want := []string{"P2", "P1", "P3"}
+	if len(got) != len(want) {
+		t.Fatalf("normalizeReviewPriorities length = %d; want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("normalizeReviewPriorities[%d] = %q; want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+	if _, err := normalizeReviewPriorities([]string{"P4"}); err == nil {
+		t.Fatal("normalizeReviewPriorities accepted invalid priority")
+	}
+}
+
 func TestReviewLaneWindowAcceptsLaneOrFullWindow(t *testing.T) {
 	if got, want := reviewLaneWindow(12, "pr-review-a"), "pr-review-12-pr-review-a"; got != want {
 		t.Fatalf("reviewLaneWindow lane = %q; want %q", got, want)

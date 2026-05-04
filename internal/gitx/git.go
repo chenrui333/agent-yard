@@ -89,6 +89,14 @@ func (c Client) VerifyRef(ctx context.Context, dir, ref string) error {
 	return err
 }
 
+func (c Client) RevParse(ctx context.Context, dir, ref string) (string, error) {
+	result, err := c.run(ctx, dir, "rev-parse", "--verify", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
 func (c Client) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
 	_, err := c.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
 	if err == nil {

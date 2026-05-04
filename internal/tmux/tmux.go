@@ -81,6 +81,17 @@ func (c Client) CapturePane(ctx context.Context, target string) (string, error) 
 	return result.Stdout, nil
 }
 
+func (c Client) CapturePaneTail(ctx context.Context, target string, lines int) (string, error) {
+	if lines <= 0 {
+		return c.CapturePane(ctx, target)
+	}
+	result, err := c.run(ctx, "capture-pane", "-p", "-S", fmt.Sprintf("-%d", lines), "-t", target)
+	if err != nil {
+		return "", err
+	}
+	return tailLines(result.Stdout, lines), nil
+}
+
 func (c Client) ListPanes(ctx context.Context, target string) ([]Pane, error) {
 	result, err := c.run(ctx, "list-panes", "-t", target, "-F", "#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_dead_status}")
 	if err != nil {
@@ -136,6 +147,20 @@ func (c Client) WindowExists(ctx context.Context, session, name string) (bool, e
 
 func Target(session, window string) string {
 	return session + ":" + window
+}
+
+func tailLines(output string, lines int) string {
+	if lines <= 0 || output == "" {
+		return output
+	}
+	parts := strings.SplitAfter(output, "\n")
+	if parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) <= lines {
+		return output
+	}
+	return strings.Join(parts[len(parts)-lines:], "")
 }
 
 func ParsePaneList(output string) []Pane {

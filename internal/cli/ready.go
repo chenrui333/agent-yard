@@ -151,7 +151,12 @@ func (a *App) collectReadyChecks(cmd *cobra.Command, cfg config.Config, item tas
 	if prOK {
 		addPRReadyChecks(pr, add)
 		if opts.reviewLane != "" {
-			a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, add)
+			reviewHead, err := readyPRHead(ctx, git, repoPath, cfg, item, pr, fetchRemote)
+			if err != nil {
+				add("review lane", "fail", "resolve PR head: "+err.Error())
+			} else {
+				a.addReviewLaneReadyCheck(ctx, cfg, pr.Number, opts.reviewLane, reviewHead, localWorktree, add)
+			}
 		} else if opts.write {
 			add("review lane", "fail", "--review-lane is required with --write")
 		} else {
@@ -211,6 +216,19 @@ func (a *App) readyPullRequest(ctx context.Context, cfg config.Config, item task
 	return pr, true
 }
 
+func readyPRHead(ctx context.Context, git gitx.Client, repoPath string, cfg config.Config, item task.Task, pr ghx.PullRequest, fetchRemote func() error) (string, error) {
+	if head := strings.TrimSpace(pr.HeadRefOid); head != "" {
+		return head, nil
+	}
+	if item.Branch == "" {
+		return "", nil
+	}
+	if err := fetchRemote(); err != nil {
+		return "", err
+	}
+	return git.RevParse(ctx, repoPath, cfg.DefaultRemote+"/"+item.Branch)
+}
+
 func addPRReadyChecks(pr ghx.PullRequest, add func(string, string, string)) {
 	if pr.State != "" && pr.State != "OPEN" {
 		add("pr state", "fail", pr.State)
@@ -241,12 +259,54 @@ func addPRReadyChecks(pr ghx.PullRequest, add func(string, string, string)) {
 	add("checks", "pass", fmt.Sprintf("%d check(s)", len(pr.StatusCheckRollup)))
 }
 
-func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, prNumber int, lane string, add func(string, string, string)) {
+func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, prNumber int, lane, reviewHead, worktree string, add func(string, string, string)) {
+	window := reviewLaneWindow(prNumber, lane)
+	if result, ok, err := a.loadReviewResult(prNumber, lane); err != nil {
+		add("review lane", "fail", err.Error())
+		return
+	} else if ok {
+		if result.PRNumber != 0 && result.PRNumber != prNumber {
+			add("review lane", "fail", fmt.Sprintf("review result PR %d, want %d", result.PRNumber, prNumber))
+			return
+		}
+		if result.Lane != "" && result.Lane != window {
+			add("review lane", "fail", fmt.Sprintf("review result lane %q, want %q", result.Lane, window))
+			return
+		}
+		if result.Head != "" && reviewHead != "" {
+			if result.Head != reviewHead {
+				add("review lane", "fail", "review result is stale for current PR HEAD")
+				return
+			}
+		} else if result.Head != "" && worktree != "" {
+			head, err := gitx.New().RevParse(ctx, worktree, "HEAD")
+			if err != nil {
+				add("review lane", "fail", err.Error())
+				return
+			}
+			if head != result.Head {
+				add("review lane", "fail", "review result is stale for current HEAD")
+				return
+			}
+		}
+		if priorities := blockingReviewPriorities(result.Priorities); len(priorities) > 0 {
+			add("review lane", "fail", "structured review result has blocking priorities "+strings.Join(priorities, ","))
+			return
+		}
+		switch result.Status {
+		case reviewResultClear:
+			add("review lane", "pass", reviewResultDetail(result))
+		case reviewResultFindings:
+			add("review lane", "fail", reviewResultDetail(result))
+		default:
+			add("review lane", "fail", "unknown structured review result status "+result.Status)
+		}
+		return
+	}
 	if err := tmux.EnsureExists(); err != nil {
 		add("review lane", "fail", err.Error())
 		return
 	}
-	window := reviewLaneWindow(prNumber, lane)
 	output, err := tmux.New().CapturePane(ctx, tmux.Target(cfg.Session, window))
 	if err != nil {
 		add("review lane", "fail", err.Error())
@@ -281,6 +341,22 @@ func hasReviewPriorityFindings(output string) bool {
 		}
 	}
 	return false
+}
+
+func blockingReviewPriorities(values []string) []string {
+	priorities := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = normalizeReviewPriorityToken(value)
+		switch value {
+		case "P1", "P2", "P3":
+			if !seen[value] {
+				seen[value] = true
+				priorities = append(priorities, value)
+			}
+		}
+	}
+	return priorities
 }
 
 func checkRollupPassed(check ghx.CheckRollup) bool {
