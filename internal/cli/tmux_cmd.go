@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -138,7 +139,11 @@ func (a *App) runLanes(cmd *cobra.Command, session string) error {
 		if panes, err := tmuxClient.ListPanes(cmd.Context(), tmux.Target(session, window)); err == nil {
 			pane = paneStatus(panes)
 		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", window, ownerIDs(owners[window]), ownerStatuses(owners[window]), pane); err != nil {
+		items := owners[window]
+		if len(items) == 0 {
+			items = prReviewWindowOwners(ledger, window)
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", window, ownerIDs(items), ownerStatuses(items), pane); err != nil {
 			return err
 		}
 	}
@@ -165,6 +170,30 @@ func laneOwners(ledger task.Ledger) map[string][]task.Task {
 		owners[agent.TaskWindowName(item)] = append(owners[agent.TaskWindowName(item)], item)
 	}
 	return owners
+}
+
+func prReviewWindowOwners(ledger task.Ledger, window string) []task.Task {
+	prNumber := prReviewWindowPRNumber(window)
+	if prNumber == 0 {
+		return nil
+	}
+	var owners []task.Task
+	for _, item := range ledger.Tasks {
+		if item.PRNumber == prNumber || prNumberFromTaskURL(item) == prNumber {
+			owners = append(owners, item)
+		}
+	}
+	return owners
+}
+
+func prReviewWindowPRNumber(window string) int {
+	if !strings.HasPrefix(window, "pr-review-") {
+		return 0
+	}
+	rest := strings.TrimPrefix(window, "pr-review-")
+	value, _, _ := strings.Cut(rest, "-")
+	number, _ := strconv.Atoi(value)
+	return number
 }
 
 func ownerIDs(items []task.Task) string {

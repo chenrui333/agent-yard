@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/chenrui333/agent-yard/internal/config"
 	"github.com/chenrui333/agent-yard/internal/gitx"
+	"github.com/chenrui333/agent-yard/internal/task"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -81,17 +84,9 @@ func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewRes
 			return fmt.Errorf("review result status %q cannot include blocking priorities %s; use --status %s or omit --priority", reviewResultClear, strings.Join(blocking, ","), reviewResultFindings)
 		}
 	}
-	worktreePath := a.taskWorktreePath(cfg, *item)
-	if worktreePath == "" {
-		return fmt.Errorf("task %q has no worktree", taskID)
-	}
-	worktreePath, err = filepath.Abs(worktreePath)
+	head, err := a.reviewResultHead(cmd.Context(), cfg, *item, prNumber, opts.lane)
 	if err != nil {
 		return err
-	}
-	head, err := gitx.New().RevParse(cmd.Context(), worktreePath, "HEAD")
-	if err != nil {
-		return fmt.Errorf("resolve task HEAD in %s: %w", worktreePath, err)
 	}
 	result := reviewResult{
 		PRNumber:   prNumber,
@@ -109,6 +104,51 @@ func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewRes
 	}
 	a.printf("recorded review result: %s\n", path)
 	return nil
+}
+
+func (a *App) reviewResultHead(ctx context.Context, cfg config.Config, item task.Task, prNumber int, lane string) (string, error) {
+	git := gitx.New()
+	reviewWorktree, err := filepath.Abs(a.prReviewWorktreePath(prNumber, lane))
+	if err != nil {
+		return "", err
+	}
+	if stat, err := os.Stat(reviewWorktree); err == nil {
+		if !stat.IsDir() {
+			return "", fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
+		}
+		topLevel, err := git.TopLevel(ctx, reviewWorktree)
+		if err != nil {
+			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
+		}
+		topLevel, err = filepath.Abs(topLevel)
+		if err != nil {
+			return "", err
+		}
+		if !sameFilesystemPath(topLevel, reviewWorktree) {
+			return "", fmt.Errorf("review worktree %s is not an isolated git worktree root; git top-level is %s", reviewWorktree, topLevel)
+		}
+		head, err := git.RevParse(ctx, reviewWorktree, "HEAD")
+		if err != nil {
+			return "", fmt.Errorf("resolve review worktree HEAD in %s: %w", reviewWorktree, err)
+		}
+		return head, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat review worktree path %s: %w", reviewWorktree, err)
+	}
+
+	worktreePath := a.taskWorktreePath(cfg, item)
+	if worktreePath == "" {
+		return "", fmt.Errorf("task %q has no worktree", item.ID)
+	}
+	worktreePath, err = filepath.Abs(worktreePath)
+	if err != nil {
+		return "", err
+	}
+	head, err := git.RevParse(ctx, worktreePath, "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve task HEAD in %s: %w", worktreePath, err)
+	}
+	return head, nil
 }
 
 func normalizeReviewResultStatus(value string) (string, error) {

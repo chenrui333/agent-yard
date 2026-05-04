@@ -169,7 +169,7 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 		if err != nil {
 			return "", err
 		}
-		if filepath.Clean(topLevel) != filepath.Clean(reviewWorktree) {
+		if !sameFilesystemPath(topLevel, reviewWorktree) {
 			return "", fmt.Errorf("review worktree %s is not an isolated git worktree root; git top-level is %s", reviewWorktree, topLevel)
 		}
 		dirty, err := git.IsDirty(ctx, reviewWorktree)

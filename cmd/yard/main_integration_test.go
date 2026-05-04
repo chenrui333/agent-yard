@@ -257,6 +257,7 @@ if [ "$1" = "has-session" ]; then
 fi
 if [ "$1" = "list-windows" ]; then
   echo impl-01
+  echo pr-review-123-pr-review-a
   echo manual
   exit 0
 fi
@@ -290,7 +291,7 @@ agents:
     status: running
     assigned_agent: impl-01
     pr_url: ""
-    pr_number: 0
+    pr_number: 123
 `)
 
 	captureOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "capture", "feature", "--tail", "80")
@@ -308,6 +309,12 @@ agents:
 	assertContains(t, lanesOut, "impl-01")
 	assertContains(t, lanesOut, "feature")
 	assertContains(t, lanesOut, "running codex")
+	assertContains(t, lanesOut, "pr-review-123-pr-review-a")
+	for _, line := range strings.Split(lanesOut, "\n") {
+		if strings.HasPrefix(line, "pr-review-123-pr-review-a") && !strings.Contains(line, "feature") {
+			t.Fatalf("review lane should map to feature task, got line: %q\nfull output:\n%s", line, lanesOut)
+		}
+	}
 	assertContains(t, lanesOut, "manual")
 }
 
@@ -1431,21 +1438,21 @@ recorded_at: "2026-01-01T00:00:00Z"
 	}
 	assertContains(t, out, "structured review result has blocking priorities P2")
 
-	writeFile(t, resultFile, fmt.Sprintf(`pr_number: 123
-task_id: feature
-lane: pr-review-123-pr-review-a
-head: %s
-status: clear
-recorded_at: "2026-01-01T00:00:00Z"
-`, head))
-	pushRepo := filepath.Join(dir, "push-repo")
-	runGit(t, dir, "clone", "--branch", "feature-task", origin, pushRepo)
-	runGit(t, pushRepo, "config", "user.name", "Yard Test")
-	runGit(t, pushRepo, "config", "user.email", "yard@example.com")
-	writeFile(t, filepath.Join(pushRepo, "later.txt"), "later\n")
-	runGit(t, pushRepo, "add", "later.txt")
-	runGit(t, pushRepo, "commit", "-m", "later")
-	runGit(t, pushRepo, "push", "origin", "feature-task")
+	reviewWorktree := filepath.Join(dir, ".yard", "reviews", "pr-123-pr-review-a")
+	runGit(t, repo, "worktree", "add", "--detach", reviewWorktree, "HEAD")
+	writeFile(t, filepath.Join(repo, "later.txt"), "later\n")
+	runGit(t, repo, "add", "later.txt")
+	runGit(t, repo, "commit", "-m", "later")
+	runGit(t, repo, "push", "origin", "feature-task")
+	taskHead := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	recordOut, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--summary", "reviewed old head")
+	if err != nil {
+		t.Fatalf("review-result feature after worker push: %v\n%s", err, recordOut)
+	}
+	resultData = readFile(t, resultFile)
+	assertContains(t, resultData, "head: "+head)
+	assertNotContains(t, resultData, "head: "+taskHead)
 
 	out, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a")
 	if err == nil {
