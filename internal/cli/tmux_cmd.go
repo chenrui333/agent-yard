@@ -48,6 +48,7 @@ func (a *App) newLanesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lanes",
 		Short: "Show live tmux lanes and their task mapping",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runLanes(cmd, session)
 		},
@@ -119,8 +120,7 @@ func (a *App) runLanes(cmd *cobra.Command, session string) error {
 		return err
 	}
 	if !exists {
-		a.printf("session %s missing\n", session)
-		return nil
+		return fmt.Errorf("tmux session %q not found", session)
 	}
 	windows, err := tmuxClient.ListWindows(cmd.Context(), session)
 	if err != nil {

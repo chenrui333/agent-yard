@@ -363,18 +363,23 @@ agents:
 	assertContains(t, lanesOut, "feature")
 	assertContains(t, lanesOut, "running codex")
 	assertContains(t, lanesOut, "local-review-feature")
-	for _, line := range strings.Split(lanesOut, "\n") {
-		if strings.HasPrefix(line, "local-review-feature") && !strings.Contains(line, "feature") {
-			t.Fatalf("local review lane should map to feature task, got line: %q\nfull output:\n%s", line, lanesOut)
-		}
-	}
+	assertLaneOwner(t, lanesOut, "local-review-feature", "feature", "running")
 	assertContains(t, lanesOut, "pr-review-123-pr-review-a")
-	for _, line := range strings.Split(lanesOut, "\n") {
-		if strings.HasPrefix(line, "pr-review-123-pr-review-a") && !strings.Contains(line, "feature") {
-			t.Fatalf("review lane should map to feature task, got line: %q\nfull output:\n%s", line, lanesOut)
-		}
-	}
+	assertLaneOwner(t, lanesOut, "pr-review-123-pr-review-a", "feature", "running")
 	assertContains(t, lanesOut, "manual")
+
+	argsOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "lanes", "typo")
+	if err == nil {
+		t.Fatalf("lanes should reject stray args\n%s", argsOut)
+	}
+	assertContains(t, argsOut, "unknown command")
+
+	writeExecutable(t, filepath.Join(binDir, "tmux"), "#!/bin/sh\nif [ \"$1\" = \"has-session\" ]; then\n  exit 1\nfi\nexit 0\n")
+	missingOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "lanes")
+	if err == nil {
+		t.Fatalf("lanes should fail when tmux session is missing\n%s", missingOut)
+	}
+	assertContains(t, missingOut, `tmux session "yard-test" not found`)
 }
 
 func TestWavePrepareRevertsClaimOnFailure(t *testing.T) {
@@ -1869,4 +1874,18 @@ func assertNotContains(t *testing.T, got, want string) {
 	if strings.Contains(got, want) {
 		t.Fatalf("expected output not to contain %q\noutput:\n%s", want, got)
 	}
+}
+
+func assertLaneOwner(t *testing.T, output, window, taskID, status string) {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == window {
+			if fields[1] != taskID || fields[2] != status {
+				t.Fatalf("lane %s owner = %s/%s; want %s/%s\nline: %q\noutput:\n%s", window, fields[1], fields[2], taskID, status, line, output)
+			}
+			return
+		}
+	}
+	t.Fatalf("lane %s not found\noutput:\n%s", window, output)
 }
