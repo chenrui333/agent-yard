@@ -1390,12 +1390,19 @@ agents:
     pr_number: 123
 `, repo))
 
+	rejectOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--priority", "P2")
+	if err == nil {
+		t.Fatalf("review-result with clear status and priority should fail\n%s", rejectOut)
+	}
+	assertContains(t, rejectOut, "cannot include blocking priorities P2")
+
 	recordOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--summary", "clear")
 	if err != nil {
 		t.Fatalf("review-result feature: %v\n%s", err, recordOut)
 	}
 	assertContains(t, recordOut, "recorded review result:")
-	resultData := readFile(t, filepath.Join(dir, ".yard", "review-results", "pr-review-123-pr-review-a.yaml"))
+	resultFile := filepath.Join(dir, ".yard", "review-results", "pr-review-123-pr-review-a.yaml")
+	resultData := readFile(t, resultFile)
 	assertContains(t, resultData, "status: clear")
 
 	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a", "--write")
@@ -1407,6 +1414,22 @@ agents:
 	if _, err := os.Stat(tmuxMarker); !os.IsNotExist(err) {
 		t.Fatalf("ready should not capture tmux when structured review result exists, stat error: %v", err)
 	}
+
+	head := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+	writeFile(t, resultFile, fmt.Sprintf(`pr_number: 123
+task_id: feature
+lane: pr-review-123-pr-review-a
+head: %s
+status: clear
+priorities:
+  - P2
+recorded_at: "2026-01-01T00:00:00Z"
+`, head))
+	out, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "ready", "feature", "--review-lane", "pr-review-a")
+	if err == nil {
+		t.Fatalf("ready should fail when structured review result records blocking priorities\n%s", out)
+	}
+	assertContains(t, out, "structured review result has blocking priorities P2")
 }
 
 func TestReadyFailsWhenLocalHeadIsUnpushed(t *testing.T) {

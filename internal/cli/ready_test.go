@@ -25,6 +25,19 @@ func TestHasReviewPriorityFindingsIgnoresClearPassMessage(t *testing.T) {
 	}
 }
 
+func TestBlockingReviewPriorities(t *testing.T) {
+	got := blockingReviewPriorities([]string{"p2", "P4", "P1", "P2", "note", "p3"})
+	want := []string{"P2", "P1", "P3"}
+	if len(got) != len(want) {
+		t.Fatalf("blockingReviewPriorities length = %d; want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("blockingReviewPriorities[%d] = %q; want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestReviewLaneWindowAcceptsLaneOrFullWindow(t *testing.T) {
 	if got, want := reviewLaneWindow(12, "pr-review-a"), "pr-review-12-pr-review-a"; got != want {
 		t.Fatalf("reviewLaneWindow lane = %q; want %q", got, want)

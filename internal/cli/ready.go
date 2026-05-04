@@ -266,6 +266,10 @@ func (a *App) addReviewLaneReadyCheck(ctx context.Context, cfg config.Config, pr
 				return
 			}
 		}
+		if priorities := blockingReviewPriorities(result.Priorities); len(priorities) > 0 {
+			add("review lane", "fail", "structured review result has blocking priorities "+strings.Join(priorities, ","))
+			return
+		}
 		switch result.Status {
 		case reviewResultClear:
 			add("review lane", "pass", reviewResultDetail(result))
@@ -314,6 +318,22 @@ func hasReviewPriorityFindings(output string) bool {
 		}
 	}
 	return false
+}
+
+func blockingReviewPriorities(values []string) []string {
+	priorities := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.ToUpper(strings.TrimSpace(value))
+		switch value {
+		case "P1", "P2", "P3":
+			if !seen[value] {
+				seen[value] = true
+				priorities = append(priorities, value)
+			}
+		}
+	}
+	return priorities
 }
 
 func checkRollupPassed(check ghx.CheckRollup) bool {

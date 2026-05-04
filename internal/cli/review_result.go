@@ -72,6 +72,12 @@ func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewRes
 	if err != nil {
 		return err
 	}
+	priorities := normalizeReviewPriorities(opts.priorities)
+	if status == reviewResultClear {
+		if blocking := blockingReviewPriorities(priorities); len(blocking) > 0 {
+			return fmt.Errorf("review result status %q cannot include blocking priorities %s; use --status %s or omit --priority", reviewResultClear, strings.Join(blocking, ","), reviewResultFindings)
+		}
+	}
 	worktreePath := a.taskWorktreePath(cfg, *item)
 	if worktreePath == "" {
 		return fmt.Errorf("task %q has no worktree", taskID)
@@ -90,7 +96,7 @@ func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewRes
 		Lane:       reviewLaneWindow(prNumber, opts.lane),
 		Head:       head,
 		Status:     status,
-		Priorities: normalizeReviewPriorities(opts.priorities),
+		Priorities: priorities,
 		Summary:    strings.TrimSpace(opts.summary),
 		RecordedAt: time.Now().UTC().Format(time.RFC3339),
 	}
