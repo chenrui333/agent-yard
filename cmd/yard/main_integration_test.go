@@ -1539,6 +1539,18 @@ recorded_at: "2026-01-01T00:00:00Z"
 	runGit(t, repo, "push", "origin", "feature-task")
 	taskHead := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
 
+	dirtyReviewFile := filepath.Join(reviewWorktree, "local-only.txt")
+	writeFile(t, dirtyReviewFile, "local-only\n")
+	dirtyOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-123-pr-review-a", "--summary", "dirty review")
+	if err == nil {
+		t.Fatalf("review-result should reject dirty review worktree\n%s", dirtyOut)
+	}
+	assertContains(t, dirtyOut, "review worktree")
+	assertContains(t, dirtyOut, "is dirty")
+	if err := os.Remove(dirtyReviewFile); err != nil {
+		t.Fatalf("clean dirty review file: %v", err)
+	}
+
 	recordOut, err = runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-123-pr-review-a", "--summary", "reviewed old head")
 	if err != nil {
 		t.Fatalf("review-result feature after worker push: %v\n%s", err, recordOut)

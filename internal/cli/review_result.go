@@ -116,6 +116,13 @@ func (a *App) reviewResultHead(ctx context.Context, cfg config.Config, item task
 	if exists, err := validateReviewWorktreeRoot(ctx, git, reviewWorktree); err != nil {
 		return "", err
 	} else if exists {
+		dirty, err := git.IsDirty(ctx, reviewWorktree)
+		if err != nil {
+			return "", fmt.Errorf("check review worktree dirty state %s: %w", reviewWorktree, err)
+		}
+		if dirty {
+			return "", fmt.Errorf("review worktree %s is dirty", reviewWorktree)
+		}
 		head, err := git.RevParse(ctx, reviewWorktree, "HEAD")
 		if err != nil {
 			return "", fmt.Errorf("resolve review worktree HEAD in %s: %w", reviewWorktree, err)
