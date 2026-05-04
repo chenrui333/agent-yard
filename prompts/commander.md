@@ -22,7 +22,7 @@ You are the commander terminal for this repository's agent-yard session. Keep th
 4. Use worker lanes, not reviewer lanes, for commander-side goal discovery or guardrail audits.
 5. Route P1/P2/P3 review findings back to the assigned worker lane.
 6. After meaningful commits, update PR title/body so reviewers see current scope.
-7. Record a clear review outcome with yard review-result once the reviewer reports no P1/P2/P3 TODO comments.
+7. Record a clear review outcome with yard review-result <task-id> --lane <lane> once the reviewer reports no P1/P2/P3 TODO comments.
 8. Gate completion with yard ready <task-id> --review-lane <lane> --write.
 
 ## Memory

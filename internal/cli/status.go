@@ -101,6 +101,8 @@ func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger ta
 			for _, window := range windows {
 				windowSet[window] = true
 			}
+		} else if exists, err := tmuxClient.HasSession(ctx, cfg.Session); err == nil && !exists {
+			windowsKnown = true
 		}
 	}
 	var rows []statusx.Row
@@ -167,7 +169,7 @@ func (a *App) collectStatusRows(cmd *cobra.Command, cfg config.Config, ledger ta
 					if panes, err := tmuxClient.ListPanes(ctx, tmux.Target(cfg.Session, window)); err == nil {
 						row.Tmux = paneStatus(panes)
 					} else {
-						row.Tmux = window
+						row.Tmux = "unknown"
 					}
 				} else {
 					row.Tmux = "missing"

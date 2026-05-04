@@ -43,6 +43,9 @@ func TestRenderCommanderIncludesGoal(t *testing.T) {
 	if !strings.Contains(rendered, "Keep this session running until the goal is reached") {
 		t.Fatalf("rendered commander prompt missing long-running guidance:\n%s", rendered)
 	}
+	if !strings.Contains(rendered, "yard review-result <task-id> --lane <lane>") {
+		t.Fatalf("rendered commander prompt missing review-result command shape:\n%s", rendered)
+	}
 }
 
 func TestRenderTemplateFile(t *testing.T) {

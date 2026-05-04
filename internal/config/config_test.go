@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -20,7 +21,11 @@ func TestLoadOrDefault(t *testing.T) {
 	if cfg.Agents.Commander.Command != "codex" {
 		t.Fatalf("Commander command = %q; want codex", cfg.Agents.Commander.Command)
 	}
-	if len(cfg.Agents.PRReview.Args) != 3 {
+	wantAgentArgs := []string{"exec", "--sandbox", "danger-full-access"}
+	if !reflect.DeepEqual(cfg.Agents.Commander.Args, wantAgentArgs) {
+		t.Fatalf("Commander args = %#v; want %#v", cfg.Agents.Commander.Args, wantAgentArgs)
+	}
+	if !reflect.DeepEqual(cfg.Agents.PRReview.Args, wantAgentArgs) {
 		t.Fatalf("PRReview args = %#v; want full-access codex exec defaults", cfg.Agents.PRReview.Args)
 	}
 }

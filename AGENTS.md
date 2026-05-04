@@ -48,7 +48,7 @@ For each workset, run this loop until the pull request is ready:
    ```
 
 5. Treat P1/P2/P3 review findings or TODO comments as required follow-up work.
-6. Send follow-up work back to the worker terminal or patch it directly in the assigned worktree.
+6. Route all P1/P2/P3 follow-up edits through the assigned worker terminal; do not edit the assigned worktree directly from the commander or reviewer lane.
 7. After meaningful commits, update the pull request title or body so reviewers can understand the current scope without reconstructing history.
 8. Use `yard review-result TASK_ID --lane LANE` when the reviewer reports no P1/P2/P3 TODO comments.
 9. Use `yard ready TASK_ID --review-lane LANE --write` as the final gate once CI is green and the review result is clear.

@@ -243,6 +243,58 @@ func TestBoardSkipsRemoteBranchProbe(t *testing.T) {
 	}
 }
 
+func TestStatusReportsMissingTmuxWhenSessionMissing(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "tmux"), `#!/bin/sh
+if [ "$1" = "list-windows" ]; then
+  exit 1
+fi
+if [ "$1" = "has-session" ]; then
+  exit 1
+fi
+exit 0
+`)
+	writeFile(t, configPath, `repo: "."
+base_branch: main
+default_remote: origin
+session: yard-test
+agents:
+  implementation:
+    command: codex
+  local_review:
+    command: codex
+  pr_review:
+    command: codex
+`)
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf(`tasks:
+  - id: missing-lane
+    issue: 338
+    checkbox: Missing lane
+    service_family: s3
+    branch: missing-lane
+    worktree: %q
+    status: running
+    assigned_agent: impl-01
+    pr_url: ""
+    pr_number: 0
+`, worktree))
+
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir}, "--config", configPath, "board")
+	if err != nil {
+		t.Fatalf("board should render missing tmux lanes when session is absent: %v\n%s", err, out)
+	}
+	assertContains(t, out, "missing-lane")
+	assertContains(t, out, "missing")
+}
+
 func TestCaptureTailAndLanes(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
