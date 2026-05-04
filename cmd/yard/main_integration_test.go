@@ -1390,7 +1390,7 @@ agents:
     pr_number: 123
 `, repo))
 
-	rejectOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--priority", "P2")
+	rejectOut, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "review-result", "feature", "--lane", "pr-review-a", "--priority", "[P2]")
 	if err == nil {
 		t.Fatalf("review-result with clear status and priority should fail\n%s", rejectOut)
 	}

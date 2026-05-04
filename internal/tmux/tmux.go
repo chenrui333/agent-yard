@@ -89,7 +89,7 @@ func (c Client) CapturePaneTail(ctx context.Context, target string, lines int) (
 	if err != nil {
 		return "", err
 	}
-	return result.Stdout, nil
+	return tailLines(result.Stdout, lines), nil
 }
 
 func (c Client) ListPanes(ctx context.Context, target string) ([]Pane, error) {
@@ -147,6 +147,20 @@ func (c Client) WindowExists(ctx context.Context, session, name string) (bool, e
 
 func Target(session, window string) string {
 	return session + ":" + window
+}
+
+func tailLines(output string, lines int) string {
+	if lines <= 0 || output == "" {
+		return output
+	}
+	parts := strings.SplitAfter(output, "\n")
+	if parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) <= lines {
+		return output
+	}
+	return strings.Join(parts[len(parts)-lines:], "")
 }
 
 func ParsePaneList(output string) []Pane {

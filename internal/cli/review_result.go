@@ -72,7 +72,10 @@ func (a *App) runReviewResult(cmd *cobra.Command, taskID string, opts *reviewRes
 	if err != nil {
 		return err
 	}
-	priorities := normalizeReviewPriorities(opts.priorities)
+	priorities, err := normalizeReviewPriorities(opts.priorities)
+	if err != nil {
+		return err
+	}
 	if status == reviewResultClear {
 		if blocking := blockingReviewPriorities(priorities); len(blocking) > 0 {
 			return fmt.Errorf("review result status %q cannot include blocking priorities %s; use --status %s or omit --priority", reviewResultClear, strings.Join(blocking, ","), reviewResultFindings)
@@ -119,18 +122,32 @@ func normalizeReviewResultStatus(value string) (string, error) {
 	}
 }
 
-func normalizeReviewPriorities(values []string) []string {
+func normalizeReviewPriorities(values []string) ([]string, error) {
 	priorities := []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
-		value = strings.ToUpper(strings.TrimSpace(value))
-		if value == "" || seen[value] {
+		value = normalizeReviewPriorityToken(value)
+		if value == "" {
+			continue
+		}
+		switch value {
+		case "P1", "P2", "P3":
+		default:
+			return nil, fmt.Errorf("invalid review priority %q; expected P1, P2, or P3", value)
+		}
+		if seen[value] {
 			continue
 		}
 		seen[value] = true
 		priorities = append(priorities, value)
 	}
-	return priorities
+	return priorities, nil
+}
+
+func normalizeReviewPriorityToken(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	value = strings.Trim(value, "[](){}")
+	return strings.ToUpper(strings.TrimSpace(value))
 }
 
 func (a *App) reviewResultPath(prNumber int, lane string) string {

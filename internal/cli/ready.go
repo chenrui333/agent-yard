@@ -347,7 +347,7 @@ func blockingReviewPriorities(values []string) []string {
 	priorities := []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
-		value = strings.ToUpper(strings.TrimSpace(value))
+		value = normalizeReviewPriorityToken(value)
 		switch value {
 		case "P1", "P2", "P3":
 			if !seen[value] {
