@@ -157,21 +157,9 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 	if err != nil {
 		return "", err
 	}
-	if stat, err := os.Stat(reviewWorktree); err == nil {
-		if !stat.IsDir() {
-			return "", fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
-		}
-		topLevel, err := git.TopLevel(ctx, reviewWorktree)
-		if err != nil {
-			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
-		}
-		topLevel, err = filepath.Abs(topLevel)
-		if err != nil {
-			return "", err
-		}
-		if !sameFilesystemPath(topLevel, reviewWorktree) {
-			return "", fmt.Errorf("review worktree %s is not an isolated git worktree root; git top-level is %s", reviewWorktree, topLevel)
-		}
+	if exists, err := validateReviewWorktreeRoot(ctx, git, reviewWorktree); err != nil {
+		return "", err
+	} else if exists {
 		dirty, err := git.IsDirty(ctx, reviewWorktree)
 		if err != nil {
 			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
@@ -187,7 +175,7 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 				return "", err
 			}
 		}
-	} else if os.IsNotExist(err) {
+	} else {
 		if err := os.MkdirAll(filepath.Dir(reviewWorktree), 0o755); err != nil {
 			return "", fmt.Errorf("create review worktree parent: %w", err)
 		}
@@ -197,13 +185,39 @@ func (a *App) ensurePRReviewWorktree(ctx context.Context, cfg config.Config, prN
 		if err := git.AddDetachedWorktree(ctx, repo, reviewWorktree, cfg.DefaultRemote, cfg.BaseBranch); err != nil {
 			return "", err
 		}
-	} else {
-		return "", fmt.Errorf("stat review worktree path %s: %w", reviewWorktree, err)
 	}
 	if err := ghx.New().PRCheckout(ctx, reviewWorktree, config.GitHubRepoArg(cfg), prNumber, true); err != nil {
 		return "", err
 	}
 	return reviewWorktree, nil
+}
+
+func validateReviewWorktreeRoot(ctx context.Context, git gitx.Client, reviewWorktree string) (bool, error) {
+	stat, err := os.Lstat(reviewWorktree)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("stat review worktree path %s: %w", reviewWorktree, err)
+	}
+	if stat.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("review worktree path %s must not be a symlink", reviewWorktree)
+	}
+	if !stat.IsDir() {
+		return false, fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
+	}
+	topLevel, err := git.TopLevel(ctx, reviewWorktree)
+	if err != nil {
+		return false, fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
+	}
+	topLevel, err = filepath.Abs(topLevel)
+	if err != nil {
+		return false, err
+	}
+	if !sameFilesystemPath(topLevel, reviewWorktree) {
+		return false, fmt.Errorf("review worktree %s is not an isolated git worktree root; git top-level is %s", reviewWorktree, topLevel)
+	}
+	return true, nil
 }
 
 func prCheckoutPreview(repoArg string, prNumber int) string {

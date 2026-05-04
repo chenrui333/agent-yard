@@ -113,28 +113,14 @@ func (a *App) reviewResultHead(ctx context.Context, cfg config.Config, item task
 	if err != nil {
 		return "", err
 	}
-	if stat, err := os.Stat(reviewWorktree); err == nil {
-		if !stat.IsDir() {
-			return "", fmt.Errorf("review worktree path %s exists and is not a directory", reviewWorktree)
-		}
-		topLevel, err := git.TopLevel(ctx, reviewWorktree)
-		if err != nil {
-			return "", fmt.Errorf("review worktree %s is not a usable git worktree: %w", reviewWorktree, err)
-		}
-		topLevel, err = filepath.Abs(topLevel)
-		if err != nil {
-			return "", err
-		}
-		if !sameFilesystemPath(topLevel, reviewWorktree) {
-			return "", fmt.Errorf("review worktree %s is not an isolated git worktree root; git top-level is %s", reviewWorktree, topLevel)
-		}
+	if exists, err := validateReviewWorktreeRoot(ctx, git, reviewWorktree); err != nil {
+		return "", err
+	} else if exists {
 		head, err := git.RevParse(ctx, reviewWorktree, "HEAD")
 		if err != nil {
 			return "", fmt.Errorf("resolve review worktree HEAD in %s: %w", reviewWorktree, err)
 		}
 		return head, nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat review worktree path %s: %w", reviewWorktree, err)
 	}
 
 	worktreePath := a.taskWorktreePath(cfg, item)
