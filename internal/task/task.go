@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -82,8 +83,8 @@ func Validate(l Ledger) error {
 	branches := map[string]string{}
 	worktrees := map[string]string{}
 	for _, item := range l.Tasks {
-		if strings.TrimSpace(item.ID) == "" {
-			return fmt.Errorf("task id is required")
+		if err := ValidateID(item.ID); err != nil {
+			return err
 		}
 		if ids[item.ID] {
 			return fmt.Errorf("duplicate task id %q", item.ID)
@@ -107,6 +108,21 @@ func Validate(l Ledger) error {
 			}
 			worktrees[item.Worktree] = item.ID
 		}
+	}
+	return nil
+}
+
+func ValidateID(id string) error {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return fmt.Errorf("task id is required")
+	}
+	if trimmed != id {
+		return fmt.Errorf("task id %q has leading or trailing whitespace", id)
+	}
+	cleanID := filepath.Clean(id)
+	if filepath.IsAbs(id) || cleanID != id || cleanID == "." || cleanID == ".." || strings.ContainsAny(id, `/\\`) {
+		return fmt.Errorf("task id %q is unsafe for yard state paths", id)
 	}
 	return nil
 }

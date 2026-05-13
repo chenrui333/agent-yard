@@ -26,6 +26,28 @@ func TestValidateRejectsDuplicateBranch(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnsafeTaskIDs(t *testing.T) {
+	for _, id := range []string{"", " ", " task", "task ", ".", "..", "../outside", "nested/task", `nested\task`, "task/../other"} {
+		t.Run(id, func(t *testing.T) {
+			ledger := Ledger{Tasks: []Task{{ID: id, Status: StatusReady}}}
+			if err := Validate(ledger); err == nil {
+				t.Fatalf("Validate accepted unsafe task ID %q", id)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsSafeTaskIDs(t *testing.T) {
+	for _, id := range []string{"route53", "aws-route53", "pr-123-pr-review-a", "feature_1"} {
+		t.Run(id, func(t *testing.T) {
+			ledger := Ledger{Tasks: []Task{{ID: id, Status: StatusReady}}}
+			if err := Validate(ledger); err != nil {
+				t.Fatalf("Validate rejected safe task ID %q: %v", id, err)
+			}
+		})
+	}
+}
+
 func TestLedgerUpdate(t *testing.T) {
 	ledger := Ledger{Tasks: []Task{{ID: "route53", Status: StatusReady}}}
 	if err := ledger.Update("route53", func(item *Task) error {

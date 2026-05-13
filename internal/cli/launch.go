@@ -17,8 +17,10 @@ import (
 )
 
 type launchOptions struct {
-	dryRun bool
-	force  bool
+	dryRun        bool
+	force         bool
+	reuseIdle     bool
+	replaceWindow bool
 }
 
 func (a *App) newLaunchCmd() *cobra.Command {
@@ -32,7 +34,8 @@ func (a *App) newLaunchCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print the tmux command without launching")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if the worktree is dirty or a tmux window already exists")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if the worktree is dirty")
+	addWindowReuseFlags(cmd, opts)
 	return cmd
 }
 
@@ -42,12 +45,14 @@ func (a *App) newLaunchWaveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "launch-wave",
 		Short: "Compatibility alias for wave launch",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runLaunchWave(cmd, opts, limit)
 		},
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print tmux commands without launching")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if dirty worktrees or tmux windows exist")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if worktrees are dirty")
+	addWindowReuseFlags(cmd, opts)
 	cmd.Flags().IntVar(&limit, "limit", 10, "maximum tasks to launch")
 	return cmd
 }
@@ -70,6 +75,9 @@ func (a *App) runLaunchWave(cmd *cobra.Command, opts *launchOptions, limit int) 
 }
 
 func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store, item task.Task, kind, window string, command config.AgentCommand, nextStatus task.Status, opts *launchOptions) error {
+	if opts == nil {
+		opts = &launchOptions{}
+	}
 	worktreePath := a.taskWorktreePath(cfg, item)
 	if worktreePath == "" {
 		return fmt.Errorf("task %q has no worktree", item.ID)
@@ -92,7 +100,11 @@ func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store
 			return fmt.Errorf("worktree %s is dirty", worktreePath)
 		}
 	}
-	promptPath, err := filepath.Abs(a.promptFile(kind, item.ID))
+	promptFile, err := a.promptFile(kind, item.ID)
+	if err != nil {
+		return err
+	}
+	promptPath, err := filepath.Abs(promptFile)
 	if err != nil {
 		return err
 	}
@@ -129,19 +141,11 @@ func (a *App) launchTask(cmd *cobra.Command, cfg config.Config, store task.Store
 	if err := tmuxClient.EnsureSession(ctx, cfg.Session); err != nil {
 		return err
 	}
-	exists, err := tmuxClient.WindowExists(ctx, cfg.Session, window)
+	windowPlan, err := planTmuxWindow(ctx, tmuxClient, cfg.Session, window, opts)
 	if err != nil {
 		return err
 	}
-	if exists && !opts.force {
-		return fmt.Errorf("tmux window %s already exists", window)
-	}
-	if !exists {
-		if err := tmuxClient.NewWindow(ctx, cfg.Session, window); err != nil {
-			return err
-		}
-	}
-	if err := tmuxClient.SendKeys(ctx, tmux.Target(cfg.Session, window), launchCommand); err != nil {
+	if err := executeTmuxWindowPlan(ctx, tmuxClient, windowPlan, launchCommand); err != nil {
 		return err
 	}
 	return store.Update(item.ID, func(current *task.Task) error {

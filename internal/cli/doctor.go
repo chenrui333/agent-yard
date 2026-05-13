@@ -26,6 +26,7 @@ func (a *App) newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check local dependencies and yard configuration",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runDoctor(cmd.Context())
 		},

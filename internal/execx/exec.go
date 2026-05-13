@@ -8,13 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type Command struct {
-	Name string
-	Args []string
-	Dir  string
-	Env  []string
+	Name    string
+	Args    []string
+	Dir     string
+	Env     []string
+	Timeout time.Duration
 }
 
 type Result struct {
@@ -59,6 +61,8 @@ func (c Command) String() string {
 
 type Runner struct{}
 
+var DefaultTimeout = 2 * time.Minute
+
 func LookPath(name string) (string, error) {
 	path, err := exec.LookPath(name)
 	if err != nil {
@@ -73,7 +77,21 @@ func Exists(name string) bool {
 }
 
 func (Runner) Run(ctx context.Context, command Command) (Result, error) {
-	cmd := exec.CommandContext(ctx, command.Name, command.Args...)
+	runCtx := ctx
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); !ok {
+		timeout := command.Timeout
+		if timeout == 0 {
+			timeout = DefaultTimeout
+		}
+		if timeout > 0 {
+			runCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+	}
+	if cancel != nil {
+		defer cancel()
+	}
+	cmd := exec.CommandContext(runCtx, command.Name, command.Args...)
 	cmd.Dir = command.Dir
 	if len(command.Env) > 0 {
 		cmd.Env = append(os.Environ(), command.Env...)
@@ -94,7 +112,18 @@ func (Runner) Run(ctx context.Context, command Command) (Result, error) {
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 		}
+		if runCtx.Err() != nil {
+			err = fmt.Errorf("%w (%s)", runCtx.Err(), deadlineDescription(runCtx))
+		}
 		return result, &CommandError{Command: command, Result: result, Err: err}
 	}
 	return result, nil
+}
+
+func deadlineDescription(ctx context.Context) string {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return "deadline reached"
+	}
+	return "deadline " + deadline.Format(time.RFC3339Nano)
 }

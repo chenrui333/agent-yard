@@ -104,8 +104,12 @@ func (a *App) taskWorktreePath(cfg config.Config, item task.Task) string {
 	return filepath.Clean(filepath.Join(root, cfg.Worktrees.Prefix+item.Branch))
 }
 
-func (a *App) promptFile(kind, id string) string {
-	return a.yardPath("runs", id, kind+".md")
+func (a *App) promptFile(kind, id string) (string, error) {
+	runDir, err := safeYardChild(a.yardPath("runs"), id)
+	if err != nil {
+		return "", err
+	}
+	return safeYardChild(runDir, kind+".md")
 }
 
 func (a *App) printf(format string, args ...any) {

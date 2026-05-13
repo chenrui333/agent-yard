@@ -17,6 +17,7 @@ func (a *App) newSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync external control-plane state into the local ledger",
+		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(a.newSyncIssueCmd())
 	return cmd

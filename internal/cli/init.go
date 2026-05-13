@@ -15,6 +15,7 @@ func (a *App) newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Create yard.yaml, tasks.yaml, prompts, and .yard directories if missing",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runInit()
 		},
