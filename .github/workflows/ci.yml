@@ -47,7 +47,7 @@ jobs:
         run: go vet ./...
 
       - name: Check GoReleaser config
-        uses: goreleaser/goreleaser-action@v7.2.1
+        uses: goreleaser/goreleaser-action@v7.2.2
         with:
           distribution: goreleaser
           version: v2.15.4
