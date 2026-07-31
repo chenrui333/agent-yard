@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.0.3 - 2026-05-04
+
+### Added
+
+- Commander, worker, and reviewer operating model with `yard commander`, architecture docs, and Codex `/goal` prompt support.
+- Live coordination views with `yard board`, `yard show`, `yard lanes`, and bounded `yard capture --tail` output.
+- Structured review-result recording and readiness checks for current PR heads, reviewer checkout heads, dirty review worktrees, and blocking P1/P2/P3 priorities.
+- Explicit tmux window reuse controls with `--reuse-idle` and `--replace-window`.
+
+### Changed
+
+- `--force` is now limited to dirty worktree bypass and no longer injects commands into existing tmux windows.
+- No-argument commands now reject stray positional arguments for safer scripts.
+- Git, GitHub, and tmux helper commands receive default timeouts when callers do not provide a deadline.
+- `tasks.yaml` locks can recover from stale dead-process lock files while preserving active-writer protection.
+
+### Fixed
+
+- Unsafe task IDs can no longer write generated prompt files outside `.yard/runs`.
+- Documentation now consistently routes implementation follow-up through worker terminals, with reviewers focused on review output.
+
 ## v0.0.2 - 2026-05-03
 
 ### Added

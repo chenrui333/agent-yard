@@ -21,6 +21,7 @@ func (a *App) newGCCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Report cleanup candidates for yard run/review state",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runGC(cmd, prune, merged, force)
 		},

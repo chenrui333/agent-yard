@@ -117,6 +117,55 @@ func TestYardInitAndDryRunWorkflow(t *testing.T) {
 	assertNotContains(t, tasksData, "note:")
 }
 
+func TestNoArgCommandsRejectStrayArgs(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "yard.yaml")
+	cases := [][]string{
+		{"status", "typo"},
+		{"board", "typo"},
+		{"commander", "typo", "--dry-run"},
+		{"wave", "plan", "typo"},
+		{"wave", "prepare", "typo", "--dry-run"},
+		{"wave", "launch", "typo", "--dry-run"},
+		{"gc", "typo"},
+		{"launch-wave", "typo", "--dry-run"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			fullArgs := append([]string{"--config", configPath}, args...)
+			out, err := runYardErr(bin, dir, fullArgs...)
+			if err == nil {
+				t.Fatalf("yard %s should reject stray args\noutput:\n%s", strings.Join(fullArgs, " "), out)
+			}
+			if !strings.Contains(out, "accepts 0 arg(s), received 1") && !strings.Contains(out, "unknown command") {
+				t.Fatalf("expected Cobra argument error\noutput:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestUnsafeTaskIDRejectedBeforePromptWrite(t *testing.T) {
+	bin := buildYard(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "yard.yaml")
+	worktree := filepath.Join(dir, "worktree")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	writeFile(t, configPath, "repo: \".\"\nbase_branch: main\ndefault_remote: origin\nsession: yard-test\nagents:\n  implementation:\n    command: codex\n  local_review:\n    command: codex\n  pr_review:\n    command: codex\n")
+	writeFile(t, filepath.Join(dir, "tasks.yaml"), fmt.Sprintf("tasks:\n  - id: \"../outside\"\n    issue: 338\n    checkbox: Unsafe task\n    branch: unsafe\n    worktree: %q\n    status: ready\n    assigned_agent: impl-01\n    pr_url: \"\"\n    pr_number: 0\n", worktree))
+
+	out, err := runYardErr(bin, dir, "--config", configPath, "launch", "../outside", "--force")
+	if err == nil {
+		t.Fatalf("launch should reject unsafe task ID\noutput:\n%s", out)
+	}
+	assertContains(t, out, "unsafe for yard state paths")
+	if _, err := os.Stat(filepath.Join(dir, ".yard", "outside", "implement.md")); !os.IsNotExist(err) {
+		t.Fatalf("unsafe prompt path should not be written, stat err: %v", err)
+	}
+}
+
 func TestDoctorWarnsWhenGitHubCLIAbsentWithoutGitHubConfig(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
@@ -720,6 +769,10 @@ if [ "$1" = "list-windows" ]; then
   echo impl-01
   exit 0
 fi
+if [ "$1" = "list-panes" ]; then
+  printf '%%%%1\tzsh\t0\t\n'
+  exit 0
+fi
 exit 0
 `, tmuxLog))
 	writeFile(t, configPath, `repo: "."
@@ -849,7 +902,7 @@ agents:
 	assertContains(t, tasksData, "id: second")
 }
 
-func TestWaveLaunchForceReusesOccupiedAssignedLane(t *testing.T) {
+func TestWaveLaunchReuseIdleReusesOccupiedAssignedLane(t *testing.T) {
 	bin := buildYard(t)
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
@@ -869,6 +922,10 @@ if [ "$1" = "has-session" ]; then
 fi
 if [ "$1" = "list-windows" ]; then
   echo impl-01
+  exit 0
+fi
+if [ "$1" = "list-panes" ]; then
+  printf '%%%%1\tzsh\t0\t\n'
   exit 0
 fi
 exit 0
@@ -898,9 +955,9 @@ agents:
     pr_number: 0
 `, worktree))
 
-	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "wave", "launch", "--limit", "1", "--force")
+	out, err := runYardErrEnv(bin, dir, []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, "--config", configPath, "wave", "launch", "--limit", "1", "--reuse-idle")
 	if err != nil {
-		t.Fatalf("wave launch force: %v\n%s", err, out)
+		t.Fatalf("wave launch reuse idle: %v\n%s", err, out)
 	}
 	assertContains(t, out, "selected 1 task(s)")
 	tmuxData := readFile(t, tmuxLog)

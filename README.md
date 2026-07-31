@@ -27,8 +27,8 @@ For local development:
 
 Releases are built by GoReleaser from immutable version tags:
 
-    git tag -a v0.0.2 -m "v0.0.2"
-    git push origin v0.0.2
+    git tag -a v0.0.3 -m "v0.0.3"
+    git push origin v0.0.3
 
 The release workflow publishes tarballs for:
 
@@ -79,6 +79,8 @@ Launch one task or a small wave:
     yard wave plan --limit 3
     yard wave prepare --limit 3 --dry-run
     yard wave launch --limit 3 --dry-run
+
+Use `--reuse-idle` to reuse an existing idle shell tmux window, or `--replace-window` to explicitly kill and recreate it. `--force` only bypasses dirty-worktree checks.
 
 `yard launch-wave` remains available as a compatibility alias for `yard wave launch`.
 
@@ -194,7 +196,7 @@ The commander keeps the loop moving:
 2. Launch the paired local or PR review terminal.
 3. Watch build and review state with yard board, yard show, yard lanes, and GitHub checks.
 4. Treat P1/P2/P3 TODO comments as required follow-up.
-5. Route fixes back to the implementation terminal or patch the assigned worktree directly.
+5. Route fixes back to the implementation terminal; do not patch the assigned worktree directly from the commander or reviewer lane.
 6. Update the pull request title or body after meaningful commits.
 7. Record a structured review result with yard review-result when the reviewer is clear.
 8. Repeat until the build is green and yard ready passes.
@@ -204,6 +206,7 @@ beads/bd can be used as optional long-lived memory and backlog support for the c
 ## Safety Model
 
 - tmux owns long-running interactive sessions.
+- Existing tmux windows are not reused unless `--reuse-idle` or `--replace-window` is explicit.
 - git worktrees isolate implementation tasks.
 - tasks.yaml is locked during writes and replaced atomically.
 - yard board stays cheap for coordinator refreshes; yard status and yard show perform richer probes when detail is needed.

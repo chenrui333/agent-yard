@@ -23,6 +23,7 @@ func (a *App) newWaveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "wave",
 		Short: "Plan, prepare, and launch implementation waves",
+		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(
 		a.newWavePlanCmd(),
@@ -37,6 +38,7 @@ func (a *App) newWavePlanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Plan a wave using distinct service families when possible",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runWavePlan(cmd, limit)
 		},
@@ -52,6 +54,7 @@ func (a *App) newWavePrepareCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prepare",
 		Short: "Claim lanes and create worktrees for a planned wave",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runWavePrepare(cmd, limit, comment, dryRun)
 		},
@@ -68,13 +71,15 @@ func (a *App) newWaveLaunchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "launch",
 		Short: "Launch a prepared implementation wave",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runWaveLaunch(cmd, opts, limit)
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 10, "maximum tasks to launch")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print tmux commands without launching")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if dirty worktrees or tmux windows exist")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "launch even if worktrees are dirty")
+	addWindowReuseFlags(cmd, opts)
 	return cmd
 }
 
@@ -265,7 +270,7 @@ func (a *App) waveReservedLanes(ctx context.Context, cfg config.Config, ledger t
 }
 
 func (a *App) launchReservedLanes(ctx context.Context, cfg config.Config, ledger task.Ledger, opts *launchOptions) map[string]string {
-	if opts != nil && opts.force {
+	if opts != nil && (opts.reuseIdle || opts.replaceWindow) {
 		return wave.ReservedLanes(ledger)
 	}
 	return a.waveReservedLanes(ctx, cfg, ledger)

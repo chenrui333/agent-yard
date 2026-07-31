@@ -19,6 +19,7 @@ func (a *App) newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show task, worktree, tmux, and PR status",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, ledger, _, err := a.loadState()
 			if err != nil {
@@ -34,6 +35,7 @@ func (a *App) newBoardCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "board",
 		Short: "Show a compact status board grouped by task state",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, ledger, _, err := a.loadState()
 			if err != nil {

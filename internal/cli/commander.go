@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -18,12 +17,14 @@ func (a *App) newCommanderCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "commander",
 		Short: "Launch the commander orchestration terminal",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runCommander(cmd, opts, goal)
 		},
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print the commander command without launching")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "reuse an existing commander window")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "deprecated compatibility flag; use --reuse-idle or --replace-window for existing windows")
+	addWindowReuseFlags(cmd, opts)
 	cmd.Flags().StringVar(&goal, "goal", "", "specific commander goal for the Codex /goal line")
 	return cmd
 }
@@ -37,7 +38,11 @@ func (a *App) runCommander(cmd *cobra.Command, opts *launchOptions, goal string)
 	if err != nil {
 		return err
 	}
-	promptPath, err := filepath.Abs(a.promptFile(prompt.KindCommander, "commander"))
+	promptFile, err := a.promptFile(prompt.KindCommander, "commander")
+	if err != nil {
+		return err
+	}
+	promptPath, err := filepath.Abs(promptFile)
 	if err != nil {
 		return err
 	}
@@ -67,17 +72,9 @@ func (a *App) runCommander(cmd *cobra.Command, opts *launchOptions, goal string)
 	if err := tmuxClient.EnsureSession(ctx, cfg.Session); err != nil {
 		return err
 	}
-	exists, err := tmuxClient.WindowExists(ctx, cfg.Session, window)
+	windowPlan, err := planTmuxWindow(ctx, tmuxClient, cfg.Session, window, opts)
 	if err != nil {
 		return err
 	}
-	if exists && !opts.force {
-		return fmt.Errorf("tmux window %s already exists", window)
-	}
-	if !exists {
-		if err := tmuxClient.NewWindow(ctx, cfg.Session, window); err != nil {
-			return err
-		}
-	}
-	return tmuxClient.SendKeys(ctx, tmux.Target(cfg.Session, window), launchCommand)
+	return executeTmuxWindowPlan(ctx, tmuxClient, windowPlan, launchCommand)
 }
